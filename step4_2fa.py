@@ -8,18 +8,19 @@ from selenium.webdriver.common.action_chains import ActionChains
 from config_utils import wait_dom_ready, wait_element, wait_and_click
 
 # Import Mail Handler đã tối ưu (đây là phần duy nhất được tách ra)
-from mail_handler_v2 import get_instagram_code_strict
+from mail_handler_v2 import get_2fa_code_v2
 
 class Instagram2FAStep:
     def __init__(self, driver):
         self.driver = driver
         self.target_url = "https://accountscenter.instagram.com/password_and_security/two_factor/"
 
-    def setup_2fa(self, gmx_user, gmx_pass, linked_mail=None):
+    def setup_2fa(self, gmx_user, gmx_pass,target_username,  linked_mail=None):
         """
         Setup 2FA Flow - Logic gốc được giữ nguyên 100%.
         """
         print(f"   [Step 4] Accessing settings...")
+        print(f"   [Step 4] Starting 2FA Setup for {target_username}...")
         self.driver.get(self.target_url)
         wait_dom_ready(self.driver, timeout=5)
 
@@ -29,7 +30,7 @@ class Instagram2FAStep:
         # -------------------------------------------------
         # STEP 1: SELECT ACCOUNT
         # -------------------------------------------------
-        print("   [Step 4] Step 1: Selecting Account...")
+        print(f"   [Step 4] Step 1: Selecting Account for {target_username}...")
         self._select_account_center_profile()
 
         # -------------------------------------------------
@@ -88,7 +89,7 @@ class Instagram2FAStep:
                 raise Exception("STOP_FLOW_2FA: EMAIL_MISMATCH") 
             
             # Giải Checkpoint
-            self._solve_internal_checkpoint(gmx_user, gmx_pass)
+            self._solve_internal_checkpoint(gmx_user, gmx_pass, target_username)
             
             # Scan lại trạng thái sau khi giải
             state = self._get_page_state()
@@ -271,52 +272,89 @@ class Instagram2FAStep:
         try: return self.driver.execute_script(js_sensor)
         except: return 'UNKNOWN'
 
-    def _solve_internal_checkpoint(self, gmx_user, gmx_pass):
-        """Giải Checkpoint nội bộ dùng Mail Handler mới."""
+    def _solve_internal_checkpoint(self, gmx_user, gmx_pass, target_ig_username):
+        """
+        Giải Checkpoint nội bộ.
+        Cơ chế: Nếu nhập mã bị báo sai (do mail cũ), sẽ bấm gửi lại và chờ để lấy mã mới.
+        """
+        """Giải Checkpoint nội bộ (Step 4)."""
+        print(f"   [Step 4] Solving Internal Checkpoint for {target_ig_username}...")
         checkpoint_passed = False
         
-        for mail_attempt in range(3):
-            print(f"   [Step 4] Retrieval Attempt {mail_attempt + 1}/3...")
+        for mail_attempt in range(1, 4):
+            print(f"   [Step 4] Mail Retrieval Attempt {mail_attempt}/3...")
             
-            # Sử dụng mail handler v2 hỗ trợ nhiều loại subject
-            code = get_instagram_code_strict(gmx_user, gmx_pass, "")
+            # [UPDATE] Gọi hàm get_2fa_code_v2 với target_username
+            # Hàm này sẽ tìm mail có subject 'Authenticate...' và chứa 'target_username'
+            code = get_2fa_code_v2(gmx_user, gmx_pass, target_ig_username)
             
             if not code:
+                # ... (Logic xử lý không thấy code giữ nguyên: Check State -> Click Get New -> Wait 5s) ...
                 if self._get_page_state() in ['SELECT_APP', 'ALREADY_ON']: 
                     checkpoint_passed = True; break
                 
-                print("   [Step 4] Code not found. Requesting new code...")
+                print("   [Step 4] Code not found. Clicking 'Get new code'...")
                 self.driver.execute_script("var a=document.querySelectorAll('span, div[role=\"button\"]'); for(var e of a){if(e.innerText.toLowerCase().includes('get a new code')){e.click();break;}}")
                 time.sleep(5) 
                 continue 
+
+            print(f"   [Step 4] Inputting Code: {code}")
             
-            print(f"   [Step 4] Got Code: {code}. Inputting...")
-            
+            # 2. Nhập Code
+            print(f"   [Step 4] Inputting Code: {code}")
             if self._robust_fill_input(code):
-                time.sleep(0.5)
                 self._click_continue_robust()
                 
-                is_invalid = False
+                # 3. Kiểm tra kết quả nhập
+                is_wrong_code = False
                 print("   [Step 4] Verifying...")
-                for _ in range(8):
+                time.sleep(2)
+
+                # Thử xác nhận nhiều lần nếu chưa verify
+                verify_attempts = 0
+                while verify_attempts < 8:
                     time.sleep(1)
                     curr = self._get_page_state()
+                    # Nếu qua ải thành công
                     if curr in ['SELECT_APP', 'ALREADY_ON']:
-                        checkpoint_passed = True; break
-                    
+                        checkpoint_passed = True
+                        print("   [Step 4] Checkpoint Passed!")
+                        break
+                    # Nếu báo Lỗi Mã (Đây là chỗ phát hiện đọc nhầm mail cũ)
                     err_msg = self.driver.execute_script("return document.body.innerText.toLowerCase()")
-                    if any(msg in err_msg for msg in ["isn't right", "work", "không đúng"]):
-                        print(f"   [WARNING] Code {code} invalid.")
-                        is_invalid = True
-                        break 
-                
-                if checkpoint_passed: break
-                if is_invalid: continue 
+                    if "isn't right" in err_msg or "không đúng" in err_msg or "incorrect" in err_msg:
+                        print(f"   [WARNING] Code {code} REJECTED (Likely old email).")
+                        is_wrong_code = True
+                        break
+                    # Nếu chưa verify, thử lại thao tác xác nhận
+                    print("   [Step 4] Not verified yet, retrying confirm...")
+                    self._click_continue_robust()
+                    verify_attempts += 1
+
+                if checkpoint_passed:
+                    break
+
+                # NẾU MÃ SAI -> KÍCH HOẠT QUY TRÌNH LẤY LẠI
+                if is_wrong_code:
+                    print("   [Step 4] Triggering NEW code & Waiting 5s for delivery...")
+                    # A. Bấm nút "Get a new code"
+                    self.driver.execute_script("var a=document.querySelectorAll('span, div[role=\"button\"]'); for(var e of a){if(e.innerText.toLowerCase().includes('get a new code')){e.click();break;}}")
+                    # B. Chờ 5s (Thời gian vàng để mail mới đè lên mail cũ)
+                    time.sleep(5)
+                    # C. Xóa ô nhập liệu cũ để chuẩn bị nhập lại
+                    try:
+                        input_el = self.driver.find_element(By.CSS_SELECTOR, "input[name='code'], input[placeholder*='Code']")
+                        input_el.send_keys(Keys.CONTROL + "a")
+                        input_el.send_keys(Keys.DELETE)
+                    except: pass
+                    # D. Quay lại đầu vòng lặp -> Gọi lại get_instagram_code_strict
+                    # Lúc này mail mới đã về, ID cao hơn nên sẽ được lấy đúng.
+                    continue
             else:
                 time.sleep(1)
         
         if not checkpoint_passed: 
-            raise Exception("STOP_FLOW_2FA: Checkpoint Failed")
+            raise Exception("STOP_FLOW_2FA: Checkpoint Failed after retries")
 
     def _select_auth_app_method(self, current_state):
         app_selected = False

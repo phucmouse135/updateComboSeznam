@@ -22,12 +22,20 @@ def _get_chromedriver_path():
 def ensure_chromedriver():
     return _get_chromedriver_path()
 
-def get_driver(headless=True):
+def get_driver(headless=True , window_rect=None):
     options = Options()
     if headless:
         options.add_argument("--headless=new") 
+        
+    if not headless and window_rect:
+        x, y, w, h = window_rect
+        # Set vị trí và kích thước cửa sổ
+        options.add_argument(f"--window-position={x},{y}")
+        options.add_argument(f"--window-size={w},{h}")
+    elif not headless:
+        options.add_argument("--start-maximized")
     
-    # --- PERFORMANCE OPTIMIZATION FLAGS ---
+    #   --- PERFORMANCE OPTIMIZATION FLAGS ---
     options.add_argument("--disable-notifications")
     options.add_argument("--start-maximized")
     options.add_argument("--no-sandbox")

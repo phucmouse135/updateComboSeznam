@@ -5,7 +5,6 @@ import re
 import time
 from email.header import decode_header
 
-# Cấu hình IMAP GMX
 IMAP_SERVER = "imap.gmx.net"
 IMAP_PORT = 993
 
@@ -21,93 +20,91 @@ def _decode_str(header_value):
         return text
     except: return str(header_value)
 
-def get_instagram_code_strict(gmx_user, gmx_pass, target_ig_username):
+def _fetch_latest_unseen_mail(gmx_user, gmx_pass, subject_keywords, target_username):
     """
-    Login GMX -> Lấy Code từ mail Instagram MỚI NHẤT.
-    Hỗ trợ cả mail 'Verify account' và 'Authentication/Security code'.
+    Hàm Core: Lấy mail UNSEEN + Khớp Subject + Khớp Username trong Body.
     """
-    if not gmx_user or not gmx_pass:
-        raise Exception("MISSING_GMX_CREDS")
-    
+    if not gmx_user or not gmx_pass: return None
     if "@" not in gmx_user: gmx_user += "@gmx.net"
 
-    print(f"   [IMAP] Connecting to {gmx_user}...")
     mail = None
     try:
         mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
         mail.login(gmx_user, gmx_pass)
-    except Exception as e:
-        raise Exception(f"GMX_LOGIN_FAIL: {str(e)}")
+        mail.select("INBOX")
+        
+        # 1. Tìm mail CHƯA ĐỌC từ Instagram
+        status, messages = mail.search(None, '(UNSEEN FROM "Instagram")')
+        
+        if status == "OK" and messages[0]:
+            mail_ids = messages[0].split()
+            # Sort giảm dần (Mới nhất lên đầu)
+            mail_ids.sort(key=lambda x: int(x), reverse=True)
+            
+            # Quét tối đa 3 mail mới nhất
+            for mid in mail_ids[:3]:
+                _, msg_data = mail.fetch(mid, "(RFC822)")
+                full_msg = email.message_from_bytes(msg_data[0][1])
+                
+                # A. Check Subject
+                subject = _decode_str(full_msg["Subject"]).lower()
+                if not any(k in subject for k in subject_keywords):
+                    continue # Bỏ qua nếu tiêu đề không đúng loại
 
-    found_code = None
-    
-    try:
-        # Quét 3 lần
-        for attempt in range(3):
-            print(f"   [IMAP] Scanning inbox (Attempt {attempt+1}/3)...")
-            mail.select("INBOX")
-            
-            # Tìm tất cả mail từ Instagram (Mới nhất lên đầu)
-            status, messages = mail.search(None, '(FROM "Instagram")')
-            
-            if status == "OK" and messages[0]:
-                mail_ids = messages[0].split()
-                mail_ids.sort(key=lambda x: int(x), reverse=True)
+                # B. Parse Body
+                body = ""
+                if full_msg.is_multipart():
+                    for part in full_msg.walk():
+                        if part.get_content_type() == "text/plain":
+                            body += part.get_payload(decode=True).decode('utf-8', errors='ignore')
+                            break # Ưu tiên Plain Text
+                        elif part.get_content_type() == "text/html":
+                            body += part.get_payload(decode=True).decode('utf-8', errors='ignore')
+                else:
+                    body = full_msg.get_payload(decode=True).decode('utf-8', errors='ignore')
                 
-                # Quét 3 mail mới nhất
-                recent_mails = mail_ids[:3] 
-                
-                for mid in recent_mails:
-                    _, msg_data = mail.fetch(mid, "(RFC822)")
-                    full_msg = email.message_from_bytes(msg_data[0][1])
-                    
-                    # --- CẬP NHẬT: MỞ RỘNG TỪ KHÓA SUBJECT ---
-                    subject = _decode_str(full_msg["Subject"]).lower()
-                    valid_keywords = [
-                        "verify your account", "xác thực", 
-                        "two-factor", "authentication", "xác thực 2 yếu tố",
-                        "security code", "mã bảo mật", 
-                        "login code", "mã đăng nhập"
-                    ]
-                    
-                    # Nếu tiêu đề không chứa từ khóa nào liên quan -> Bỏ qua
-                    if not any(k in subject for k in valid_keywords):
+                body_lower = body.lower()
+
+                # C. Check Username (QUAN TRỌNG: BẮT BUỘC PHẢI KHỚP)
+                if target_username:
+                    if target_username.lower() not in body_lower:
+                        print(f"   [IMAP] Skipped mail ID {mid}: Username '{target_username}' not found in body.")
                         continue 
-                    
-                    # Check Body
-                    body_content = ""
-                    if full_msg.is_multipart():
-                        for part in full_msg.walk():
-                            if part.get_content_type() == "text/plain":
-                                body_content += part.get_payload(decode=True).decode('utf-8', errors='ignore')
-                    else:
-                        body_content = full_msg.get_payload(decode=True).decode('utf-8', errors='ignore')
-                    
-                    # Check Username (Chỉ check nếu là mail Verify Account, mail Auth đôi khi không có username)
-                    if "verify" in subject and target_ig_username.lower() not in body_content.lower():
-                        continue
 
-                    # Extract 6-digit Code (hoặc 8 số nếu có)
-                    # Ưu tiên tìm 6 số trước
-                    m = re.search(r'\b(\d{6})\b', body_content)
-                    if not m:
-                        # Fallback: Tìm 8 số (Backup code)
-                        m = re.search(r'\b(\d{8})\b', body_content)
+                # D. Extract Code (6 đến 8 số)
+                # Regex: \b(\d{6,8})\b -> Bắt số có độ dài từ 6 đến 8 ký tự nằm riêng biệt
+                m = re.search(r'\b(\d{6,8})\b', body)
+                
+                if m:
+                    found_code = m.group(1)
+                    print(f"   [IMAP] => FOUND CODE: {found_code} (Subject: {subject})")
                     
-                    if m:
-                        found_code = m.group(1)
-                        print(f"   [IMAP] => FOUND CODE: {found_code} (Subject: {subject})")
-                        return found_code
-            
-            if attempt < 2: 
-                print("   [IMAP] No code found. Waiting 5s...")
-                time.sleep(5)
-            
+                    # Đánh dấu đã đọc để không lấy lại lần sau
+                    mail.store(mid, '+FLAGS', '\\Seen')
+                    return found_code
+                    
     except Exception as e:
-        if "GMX_LOGIN_FAIL" in str(e): raise e
-        print(f"   [IMAP] Scan Error: {e}")
+        print(f"   [IMAP Error] {e}")
     finally:
         try: mail.logout()
         except: pass
-        
+    
     return None
+
+# --- API CHO CÁC BƯỚC ---
+
+def get_verify_code_v2(gmx_user, gmx_pass, target_ig_username):
+    """
+    Dùng cho Step 2: Verify Account (6 số).
+    Subject keywords: verify, confirm, login code...
+    """
+    keywords = ["verify", "xác thực", "confirm", "login code"]
+    return _fetch_latest_unseen_mail(gmx_user, gmx_pass, keywords, target_ig_username)
+
+def get_2fa_code_v2(gmx_user, gmx_pass, target_ig_username):
+    """
+    Dùng cho Step 4: Authenticate Account (6 hoặc 8 số).
+    Subject keywords: authenticate, two-factor, security code...
+    """
+    keywords = ["authenticate", "two-factor", "security", "bảo mật", "2fa"]
+    return _fetch_latest_unseen_mail(gmx_user, gmx_pass, keywords, target_ig_username)

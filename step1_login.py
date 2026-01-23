@@ -57,11 +57,11 @@ class InstagramLoginStep:
         # Dùng CSS gộp để check nhanh bất kỳ ô input nào
         input_check_css = "input[name='username'], input[name='email'], input[type='text']"
         
-        if not wait_element(self.driver, By.CSS_SELECTOR, input_check_css, timeout=2):
+        if not wait_element(self.driver, By.CSS_SELECTOR, input_check_css, timeout=5):
             print("   [Step 1] Inputs not ready. Checking for 'Use another profile'...")
             xpath_switch = "//*[contains(text(), 'Use another profile') or contains(text(), 'Switch accounts')]"
             
-            if wait_and_click(self.driver, By.XPATH, xpath_switch, timeout=3):
+            if wait_and_click(self.driver, By.XPATH, xpath_switch, timeout=5):
                 print("   [Step 1] Clicked 'Switch'. Waiting for inputs...")
                 # Chờ input xuất hiện sau khi click
                 wait_element(self.driver, By.CSS_SELECTOR, input_check_css, timeout=5)
@@ -140,6 +140,10 @@ class InstagramLoginStep:
             # 1. Các trường hợp Exception / Checkpoint
             if "check your email" in body_text:
                 return "CHECKPOINT_MAIL"
+            
+            # yêu cầu đổi mật khẩu 
+            if "we noticed unusual activity" in body_text or "change your password" in body_text or "yêu cầu đổi mật khẩu" in body_text:
+                return "REQUIRE_PASSWORD_CHANGE"
             
             if "unusual login" in body_text or "suspicious" in body_text:
                 return "UNUSUAL_LOGIN"  

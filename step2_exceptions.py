@@ -6,7 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import Select
 from config_utils import wait_element, wait_and_send_keys, wait_dom_ready, wait_and_click
-from mail_handler_v2 import get_instagram_code_strict
+from mail_handler_v2 import get_verify_code_v2
 
 class InstagramExceptionStep:
     def __init__(self, driver):
@@ -169,11 +169,11 @@ class InstagramExceptionStep:
             if attempt > 1:
                 resend_xpath = "//*[contains(text(), 'Get a new code') or contains(text(), 'Gửi mã mới')]"
                 if wait_and_click(self.driver, By.XPATH, resend_xpath, timeout=3): 
-                    print("   [Step 2] Requested new code. Waiting 5s...")
-                    time.sleep(5)
+                    print("   [Step 2] Requested new code. Waiting 1s...")
+                    time.sleep(1)
 
             try:
-                code = get_instagram_code_strict(gmx_user, gmx_pass, ig_username)
+                code = get_verify_code_v2(gmx_user, gmx_pass, ig_username)
             except Exception as e:
                 if "GMX_LOGIN_FAIL" in str(e): raise e
                 code = None

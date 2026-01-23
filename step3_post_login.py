@@ -1,5 +1,6 @@
 # step3_post_login.py
 import time
+import re
 from selenium.webdriver.common.by import By
 from config_utils import wait_element, wait_and_click, wait_dom_ready
 
@@ -32,168 +33,146 @@ class InstagramPostLoginStep:
         return data
 
     def _handle_interruptions(self):
-        """Xử lý vòng lặp các màn hình chắn với cơ chế Click mạnh mẽ (XPath + JS)."""
-        max_checks = 10 
+        """
+        Chiến thuật 'Aggressive Scan' (Đã cập nhật Confirm Accounts):
+        1. Quét Get Started / Confirm Accounts.
+        2. Quét Use Data Across Accounts.
+        3. Quét Terms/Cookie như cũ.
+        """
+        print("   [Step 3] Starting Aggressive Popup Scan...")
         
-        for i in range(max_checks):
+        end_time = time.time() + 60 
+        
+        while time.time() < end_time:
             try:
-                body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
-                
-                # --- A. PAGE BROKEN ---
-                if "page isn’t working" in body_text or "contact the site owner" in body_text:
-                    print("   [Step 3] Detected 'Page Broken'. Redirecting to Home...")
-                    self.driver.get("https://www.instagram.com/")
-                    wait_dom_ready(self.driver, timeout=10)
-                    time.sleep(3)
+                # ---------------------------------------------------------
+                # 1. QUÉT VÀ CLICK NÚT BẰNG JS (ALL-IN-ONE)
+                # ---------------------------------------------------------
+                clicked_action = self.driver.execute_script("""
+                    const keywords = {
+                        // Nhóm 1: Xác nhận tài khoản / Terms (Ưu tiên cao)
+                        'get_started': ['get started', 'bắt đầu'],
+                        'agree_confirm': ['agree', 'đồng ý', 'update', 'cập nhật', 'confirm', 'xác nhận'],
+                        'next_step': ['next', 'tiếp'],
+                        
+                        // Nhóm 2: Lựa chọn Option (Click vào text để chọn radio button)
+                        'use_data_opt': ['use data across accounts', 'sử dụng dữ liệu trên các tài khoản'],
+
+                        // Nhóm 3: Cookie & Popup rác
+                        'cookie': ['allow all cookies', 'cho phép tất cả'],
+                        'popup': ['not now', 'lúc khác', 'cancel', 'ok', 'hủy']
+                    };
+
+                    // A. TÌM VÀ CHỌN OPTION TRƯỚC (Nếu đang ở màn hình chọn Data)
+                    // Tìm thẻ label hoặc div chứa text lựa chọn
+                    const labels = document.querySelectorAll('div, span, label');
+                    for (let el of labels) {
+                        if (el.offsetParent === null) continue;
+                        let txt = el.innerText.toLowerCase().trim();
+                        
+                        // Nếu thấy dòng "Use data across accounts" -> Click để chọn
+                        if (keywords.use_data_opt.some(k => txt === k)) {
+                            // Chỉ click nếu chưa được chọn (logic này optional, cứ click cho chắc)
+                            el.scrollIntoView({behavior: "instant", block: "center"});
+                            el.click();
+                            return 'OPTION_SELECTED';
+                        }
+                    }
+
+                    // B. TÌM VÀ CLICK NÚT BẤM
+                    const elements = document.querySelectorAll('button, div[role="button"]');
+                    
+                    for (let el of elements) {
+                        if (el.offsetParent === null) continue; 
+                        let txt = el.innerText.toLowerCase().trim();
+                        if (!txt) continue;
+
+                        // 1. Get Started (Màn hình Confirm Accounts)
+                        if (keywords.get_started.some(k => txt === k)) {
+                            el.scrollIntoView({behavior: "instant", block: "center"});
+                            el.click(); return 'GET_STARTED_CLICKED';
+                        }
+
+                        // 2. Agree / Confirm
+                        if (keywords.agree_confirm.some(k => txt.includes(k))) {
+                            el.scrollIntoView({behavior: "instant", block: "center"});
+                            el.click(); return 'AGREE_CLICKED';
+                        }
+                        
+                        // 3. Next
+                        if (keywords.next_step.some(k => txt === k)) {
+                            el.scrollIntoView({behavior: "instant", block: "center"});
+                            el.click(); return 'NEXT_CLICKED';
+                        }
+
+                        // 4. Cookie
+                        if (keywords.cookie.some(k => txt.includes(k))) {
+                            el.click(); return 'COOKIE_CLICKED';
+                        }
+
+                        // 5. Popup rác
+                        if (keywords.popup.some(k => txt === k)) {
+                            el.click(); return 'POPUP_CLICKED';
+                        }
+                    }
+                    return null;
+                """)
+
+                if clicked_action:
+                    print(f"   [Step 3] Action triggered: {clicked_action}")
+                    
+                    if clicked_action == 'AGREE_CLICKED':
+                        # Confirm xong dễ bị crash hoặc load lâu
+                        time.sleep(3); self._check_crash_recovery()
+                    elif clicked_action == 'GET_STARTED_CLICKED':
+                        # Chuyển sang màn chọn Option
+                        time.sleep(2)
+                    elif clicked_action == 'OPTION_SELECTED':
+                        # Chọn xong thì chờ nút Next sáng lên để vòng lặp sau click Next
+                        print("   [Step 3] Option selected. Waiting for Next button...")
+                        time.sleep(1)
+                    else:
+                        time.sleep(1.5)
+                    
                     continue
 
-                # --- B. COOKIE CONSENT (Đã tối ưu) ---
-                if "allow the use of cookies" in body_text:
-                    print("   [Step 3] Handling 'Allow Cookies'...")
-                    
-                    # 1. Thử Click bằng Selenium (XPath mạnh)
-                    cookie_xpaths = [
-                        "//button[contains(., 'Allow all cookies')]", 
-                        "//div[@role='button'][contains(., 'Allow all cookies')]",
-                        "//*[contains(text(), 'Allow all cookies')]",
-                        "//button[contains(., 'Cho phép tất cả')]",
-                        "//*[contains(text(), 'Cho phép tất cả')]"
-                    ]
-                    clicked = False
-                    for xpath in cookie_xpaths:
-                        if wait_and_click(self.driver, By.XPATH, xpath, timeout=2):
-                            clicked = True; break
-                    
-                    # 2. Fallback: JS Click (Nếu Selenium trượt)
-                    if not clicked:
-                        print("   [Step 3] Cookie XPath failed. Using JS Injection...")
-                        self.driver.execute_script("""
-                            var keywords = ['allow all cookies', 'cho phép tất cả'];
-                            var els = document.querySelectorAll('button, div[role="button"], span');
-                            for (var e of els) {
-                                if (keywords.some(k => e.innerText.toLowerCase().includes(k))) { e.click(); break; }
-                            }
-                        """)
-                    
-                    time.sleep(3)
-                    continue
+                # ---------------------------------------------------------
+                # 2. CHECK CRASH
+                # ---------------------------------------------------------
+                try:
+                    # Check URL lạ
+                    curr_url = self.driver.current_url.lower()
+                    if "ig_sso_users" in curr_url or "/api/v1/" in curr_url or "error" in curr_url:
+                        print(f"   [Step 3] Crash URL detected. Reloading Home...")
+                        self.driver.get("https://www.instagram.com/")
+                        time.sleep(4); continue
 
-                # --- C. REVIEW AND AGREE (TERMS) - (CẬP NHẬT MẠNH MẼ) ---
-                if "review and agree" in body_text or "agree to terms" in body_text or "xem xét và đồng ý" in body_text:
-                    print("   [Step 3] Handling 'Review Terms'...")
-                    
-                    # --- BƯỚC 1: CLICK NEXT (TIẾP) ---
-                    # XPath quét rộng hơn (contains dấu chấm)
-                    next_xpaths = [
-                        "//button[contains(., 'Next')]", 
-                        "//div[@role='button'][contains(., 'Next')]",
-                        "//button[contains(., 'Tiếp')]",
-                        "//div[@role='button'][contains(., 'Tiếp')]"
-                    ]
-                    
-                    next_btn = None
-                    for xpath in next_xpaths:
-                        next_btn = wait_element(self.driver, By.XPATH, xpath, timeout=2)
-                        if next_btn: break
-                    
-                    if next_btn:
-                        try:
-                            # Scroll xuống để tránh bị che
-                            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", next_btn)
-                            time.sleep(1)
-                            next_btn.click()
-                        except:
-                            # JS Click dự phòng cho nút Next
-                            self.driver.execute_script("arguments[0].click();", next_btn)
-                        print("   [Step 3] Clicked Next (Terms).")
-                        time.sleep(3) # Chờ load đoạn Agree
-                    
-                    # --- BƯỚC 2: CLICK AGREE (ĐỒNG Ý) ---
-                    agree_xpaths = [
-                        "//button[contains(., 'Agree to terms')]",
-                        "//div[@role='button'][contains(., 'Agree to terms')]",
-                        "//*[contains(text(), 'I Agree')]",
-                        "//button[contains(., 'Đồng ý')]",
-                        "//div[@role='button'][contains(., 'Đồng ý')]"
-                    ]
-                    
-                    agree_clicked = False
-                    for xpath in agree_xpaths:
-                        agree_btn = wait_element(self.driver, By.XPATH, xpath, timeout=3)
-                        if agree_btn:
-                            try:
-                                self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", agree_btn)
-                                time.sleep(1)
-                                agree_btn.click()
-                                agree_clicked = True
-                            except:
-                                self.driver.execute_script("arguments[0].click();", agree_btn)
-                                agree_clicked = True
-                            break
-                    
-                    # Fallback JS cho nút Agree nếu XPath không tìm thấy
-                    if not agree_clicked:
-                        print("   [Step 3] Agree XPath failed. Using JS Injection...")
-                        self.driver.execute_script("""
-                            var keywords = ['agree', 'đồng ý', 'chấp nhận'];
-                            var els = document.querySelectorAll('button, div[role="button"], span');
-                            for (var e of els) {
-                                if (keywords.some(k => e.innerText.toLowerCase().includes(k))) { e.click(); break; }
-                            }
-                        """)
+                    # Check Body
+                    body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+                    if "page isn’t working" in body_text or "http error" in body_text:
+                        print("   [Step 3] Crash Text detected. Reloading Home...")
+                        self.driver.get("https://www.instagram.com/")
+                        time.sleep(4); continue
+                except: pass
 
-                    wait_dom_ready(self.driver, timeout=5)
-                    time.sleep(2)
-                    continue
+                # ---------------------------------------------------------
+                # 3. CHECK HOME (Final Condition)
+                # ---------------------------------------------------------
+                home_icons = self.driver.find_elements(By.CSS_SELECTOR, "svg[aria-label='Home'], svg[aria-label='Trang chủ']")
+                if len(home_icons) > 0:
+                    dialogs = self.driver.find_elements(By.CSS_SELECTOR, "div[role='dialog']")
+                    visible_dialogs = [d for d in dialogs if d.is_displayed()]
+                    
+                    if len(visible_dialogs) > 0:
+                        time.sleep(1); continue 
+                    else:
+                        print("   [Step 3] Home Screen Clear. Done.")
+                        break
 
-                # --- D. POPUP THÔNG BÁO (Messaging / Notif) - (CẬP NHẬT MẠNH MẼ) ---
-                if "messaging tab has a new look" in body_text or "turn on notifications" in body_text or "bật thông báo" in body_text:
-                    print("   [Step 3] Handling Notification Popup...")
-                    
-                    # Danh sách các nút từ chối/ok phổ biến
-                    popup_xpaths = [
-                        "//button[contains(., 'Not Now')]", 
-                        "//div[@role='button'][contains(., 'Not Now')]",
-                        "//button[contains(., 'Lúc khác')]",
-                        "//button[contains(., 'Không phải bây giờ')]",
-                        "//button[contains(., 'Cancel')]",
-                        "//button[contains(., 'OK')]"
-                    ]
-                    
-                    popup_clicked = False
-                    for xpath in popup_xpaths:
-                        if wait_and_click(self.driver, By.XPATH, xpath, timeout=2):
-                            popup_clicked = True
-                            break
-                    
-                    # JS Fallback cho Popup
-                    if not popup_clicked:
-                        print("   [Step 3] Popup XPath failed. Using JS Injection...")
-                        self.driver.execute_script("""
-                            var keywords = ['not now', 'lúc khác', 'cancel', 'hủy', 'ok'];
-                            var els = document.querySelectorAll('button, div[role="button"], span');
-                            for (var e of els) {
-                                if (keywords.some(k => e.innerText.toLowerCase() === k)) { e.click(); break; }
-                            }
-                        """)
-                    
-                    time.sleep(1)
-                    continue
+                time.sleep(0.5)
 
-                # --- E. CHECK SUCCESS ---
-                # Kiểm tra Nav Bar (Home Icon, Explore Icon...)
-                if len(self.driver.find_elements(By.CSS_SELECTOR, "svg[aria-label='Home'], svg[aria-label='Trang chủ'], svg[aria-label='Explore']")) > 0:
-                    print("   [Step 3] Detected Home Screen. Interruptions cleared.")
-                    break
-                
-                # Fallback check link
-                if len(self.driver.find_elements(By.CSS_SELECTOR, "a[href*='explore']")) > 0:
-                     break
-
-                time.sleep(1)
             except Exception as e:
-                pass
-
+                time.sleep(1)
     def _navigate_to_profile(self, username):
         """Click vào biểu tượng Profile để vào trang cá nhân."""
         print("   [Step 3] Navigating to Profile...")
@@ -225,35 +204,60 @@ class InstagramPostLoginStep:
         wait_element(self.driver, By.XPATH, f"//*[contains(text(), '{username}')]", timeout=5)
 
     def _crawl_data(self, username):
-        """Crawl dữ liệu Posts, Followers, Following."""
         print(f"   [Step 3] Crawling data for {username}...")
-        data = {"posts": "0", "followers": "0", "following": "0"}
+        
+        final_data = {"posts": "0", "followers": "0", "following": "0"}
+        
+        # Script JS lấy dữ liệu (không đổi)
+        js_crawl = """
+            function getInfo() {
+                let data = {posts: "0", followers: "0", following: "0"};
+                let folLink = document.querySelector("a[href*='followers']");
+                if (folLink) data.followers = folLink.innerText || folLink.getAttribute('title');
+                let folingLink = document.querySelector("a[href*='following']");
+                if (folingLink) data.following = folingLink.innerText;
+                let listItems = document.querySelectorAll("header ul li");
+                if (listItems.length >= 3) {
+                    data.posts = listItems[0].innerText;
+                    if (!data.followers || data.followers === "0") data.followers = listItems[1].innerText;
+                    if (!data.following || data.following === "0") data.following = listItems[2].innerText;
+                }
+                return data;
+            }
+            return getInfo();
+        """
 
-        try:
-            # 1. Posts (Tìm text chứa 'posts' -> lấy thẻ span con)
-            posts_el = wait_element(self.driver, By.XPATH, "//*[contains(text(), 'posts')]/span | //*[contains(text(), 'bài viết')]/span", timeout=3)
-            if posts_el: 
-                data["posts"] = posts_el.text.replace(",", "").replace(".", "")
+        def extract_num(txt):
+            if not txt: return "0"
+            match = re.search(r'[\d.,kKmM]+', str(txt))
+            return match.group(0) if match else "0"
 
-            # 2. Followers (Lấy từ thẻ A href='followers')
-            followers_el = wait_element(self.driver, By.XPATH, f"//a[contains(@href, 'followers')]//span", timeout=3)
-            if followers_el:
-                # Ưu tiên lấy attribute title vì nó chứa số đầy đủ
-                val = followers_el.get_attribute("title")
-                if not val: val = followers_el.text
-                data["followers"] = val.replace(",", "").replace(".", "")
+        # --- CƠ CHẾ RETRY (THỬ LẠI) ---
+        for i in range(1, 4): # Thử 3 lần
+            try:
+                # [UPDATE] Chậm lại 1 chút mỗi lần quét
+                time.sleep(2) 
+                
+                raw_data = self.driver.execute_script(js_crawl)
+                
+                temp_data = {
+                    "posts": extract_num(raw_data.get("posts")),
+                    "followers": extract_num(raw_data.get("followers")),
+                    "following": extract_num(raw_data.get("following"))
+                }
 
-            # 3. Following (Lấy từ thẻ A href='following')
-            following_el = wait_element(self.driver, By.XPATH, f"//a[contains(@href, 'following')]//span", timeout=3)
-            if following_el: 
-                data["following"] = following_el.text.replace(",", "").replace(".", "")
+                # Nếu lấy được dữ liệu khác 0, chốt luôn và thoát
+                if temp_data["followers"] != "0" or temp_data["following"] != "0":
+                    final_data = temp_data
+                    print(f"   [Step 3] Extracted (Attempt {i}): {final_data}")
+                    break
+                else:
+                    print(f"   [Step 3] Attempt {i}: Data is 0. Retrying...")
             
-            print(f"   [Step 3] Extracted: Posts={data['posts']} | Followers={data['followers']} | Following={data['following']}")
-            
-        except Exception as e:
-            print(f"   [Step 3] Crawl Warning: {e}")
+            except Exception as e:
+                print(f"   [Step 3] Crawl Error (Attempt {i}): {e}")
 
-        return data
+        return final_data
 
     def _get_cookie_string(self):
         """Lấy toàn bộ cookie hiện tại và gộp thành chuỗi."""
