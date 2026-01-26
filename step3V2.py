@@ -34,8 +34,10 @@ class InstagramPostLoginStep:
 
     def _handle_interruptions(self):
         """
-        Chiến thuật 'Aggressive Scan' (Tối ưu hóa bằng JS):
-        Gộp kiểm tra Popup và kiểm tra Home vào 1 lần gọi JS để tăng tốc độ.
+        Chiến thuật 'Aggressive Scan' (Đã cập nhật Confirm Accounts):
+        1. Quét Get Started / Confirm Accounts.
+        2. Quét Use Data Across Accounts.
+        3. Quét Terms/Cookie như cũ.
         """
         print("   [Step 3] Starting Aggressive Popup Scan...")
         
@@ -44,25 +46,19 @@ class InstagramPostLoginStep:
         while time.time() < end_time:
             try:
                 # ---------------------------------------------------------
-                # 1. QUÉT TRẠNG THÁI (POPUP + HOME) BẰNG JS
+                # 1. QUÉT VÀ CLICK NÚT BẰNG JS (ALL-IN-ONE)
                 # ---------------------------------------------------------
-                action_result = self.driver.execute_script("""
-                    // 1. KIỂM TRA HOME TRƯỚC (Điều kiện thoát nhanh)
-                    // Nếu thấy icon Home và không có dialog nào che -> Báo về Home ngay
-                    var homeIcon = document.querySelector("svg[aria-label='Home']") || document.querySelector("svg[aria-label='Trang chủ']");
-                    var dialogs = document.querySelectorAll("div[role='dialog']");
-                    var hasVisibleDialog = Array.from(dialogs).some(d => d.offsetParent !== null);
-                    
-                    if (homeIcon && !hasVisibleDialog) {
-                        return 'HOME_SCREEN_CLEAR';
-                    }
-
-                    // 2. TỪ KHÓA POPUP
+                clicked_action = self.driver.execute_script("""
                     const keywords = {
+                        // Nhóm 1: Xác nhận tài khoản / Terms (Ưu tiên cao)
                         'get_started': ['get started', 'bắt đầu'],
                         'agree_confirm': ['agree', 'đồng ý', 'update', 'cập nhật', 'confirm', 'xác nhận'],
                         'next_step': ['next', 'tiếp'],
+                        
+                        // Nhóm 2: Lựa chọn Option (Click vào text để chọn radio button)
                         'use_data_opt': ['use data across accounts', 'sử dụng dữ liệu trên các tài khoản'],
+
+                        // Nhóm 3: Cookie & Popup rác
                         'cookie': ['allow all cookies', 'cho phép tất cả'],
                         'popup': ['not now', 'lúc khác', 'cancel', 'ok', 'hủy'], 
                         'age_check': ['18 or older', '18 tuổi trở lên', 'trên 18 tuổi'],
@@ -70,116 +66,152 @@ class InstagramPostLoginStep:
                     };
                     const bodyText = document.body.innerText.toLowerCase();
 
-                    // --- ƯU TIÊN: POPUP "ACCOUNTS CENTER" ---
+                    // --- 1. ƯU TIÊN: POPUP "ACCOUNTS CENTER" (MỚI) ---
+                    // Nếu thấy text đặc trưng của popup này -> Tìm nút Next bấm luôn
                     if (keywords.account_center_check.some(k => bodyText.includes(k))) {
+                        // Tìm tất cả các nút có chữ Next/Continue
                         let buttons = document.querySelectorAll('button, div[role="button"], span');
                         for (let btn of buttons) {
                             let t = btn.innerText.toLowerCase().trim();
                             if (t === 'next' || t === 'tiếp' || t === 'continue') {
                                 btn.click();
+                                // Nếu là span, thử click cả cha nó
                                 if (btn.tagName === 'SPAN' && btn.parentElement) btn.parentElement.click();
                                 return 'ACCOUNTS_CENTER_NEXT';
                             }
                         }
                     }
                     
-                    // --- XỬ LÝ CHECKPOINT TUỔI (RADIO BUTTON) ---
+                    // --- 1. XỬ LÝ CHECKPOINT TUỔI (RADIO BUTTON) ---
+                    // Tìm trực tiếp thẻ input có value='above_18'
                     let radio18 = document.querySelector('input[type="radio"][value="above_18"]');
+                    
                     if (radio18) {
+                        // Thao tác 1: Click trực tiếp vào Input (Force Click)
                         radio18.click();
+                        
+                        // Thao tác 2: Click vào div cha (role='button') bao quanh nó (để chắc ăn)
                         let container = radio18.closest('div[role="button"]');
                         if (container) container.click();
+                        
+                        // Thao tác 3: Click vào phần tử "hình tròn" (thường nằm ngay trước input)
                         let visualCircle = radio18.previousElementSibling;
                         if (visualCircle) visualCircle.click();
 
-                        // Auto click Agree sau 1s
+                        // Sau khi chọn, tự động tìm nút Agree để bấm
                         setTimeout(() => {
                             let btns = document.querySelectorAll('button, div[role="button"]');
                             for(let b of btns) {
-                                if(b.innerText.toLowerCase().includes('agree') || b.innerText.toLowerCase().includes('đồng ý')) { b.click(); }
+                                let t = b.innerText.toLowerCase();
+                                if(t.includes('agree') || t.includes('đồng ý')) {
+                                    b.click();
+                                }
                             }
-                        }, 500); 
+                        }, 1000); // Chờ 1s cho nút Agree sáng lên
+                        
                         return 'AGE_CHECK_CLICKED';
                     }
                     
-                    // Fallback tuổi theo text
+                    // Fallback: Nếu không tìm thấy input, tìm theo text label
                     let ageLabels = document.querySelectorAll("span, label");
                     for(let el of ageLabels) {
                         if (el.innerText.includes("18 or older") || el.innerText.includes("18 tuổi trở lên")) {
+                             // Leo lên tìm thẻ cha có role='button' để click
                              let parentBtn = el.closest('div[role="button"]');
                              if (parentBtn) { parentBtn.click(); return 'AGE_CHECK_CLICKED'; }
                         }
                     }
 
-                    // A. TÌM VÀ CHỌN OPTION (Use Data)
+                    // A. TÌM VÀ CHỌN OPTION TRƯỚC (Nếu đang ở màn hình chọn Data)
+                    // Tìm thẻ label hoặc div chứa text lựa chọn
                     const labels = document.querySelectorAll('div, span, label');
                     for (let el of labels) {
                         if (el.offsetParent === null) continue;
                         let txt = el.innerText.toLowerCase().trim();
+                        
+                        // Nếu thấy dòng "Use data across accounts" -> Click để chọn
                         if (keywords.use_data_opt.some(k => txt === k)) {
+                            // Chỉ click nếu chưa được chọn (logic này optional, cứ click cho chắc)
                             el.scrollIntoView({behavior: "instant", block: "center"});
-                            el.click(); return 'OPTION_SELECTED';
+                            el.click();
+                            return 'OPTION_SELECTED';
                         }
                     }
 
-                    // B. TÌM VÀ CLICK NÚT BẤM CHUNG
+                    // B. TÌM VÀ CLICK NÚT BẤM
                     const elements = document.querySelectorAll('button, div[role="button"]');
+                    
                     for (let el of elements) {
                         if (el.offsetParent === null) continue; 
                         let txt = el.innerText.toLowerCase().trim();
                         if (!txt) continue;
 
+                        // 1. Get Started (Màn hình Confirm Accounts)
                         if (keywords.get_started.some(k => txt === k)) {
                             el.scrollIntoView({behavior: "instant", block: "center"});
                             el.click(); return 'GET_STARTED_CLICKED';
                         }
+
+                        // 2. Agree / Confirm
                         if (keywords.agree_confirm.some(k => txt.includes(k))) {
                             el.scrollIntoView({behavior: "instant", block: "center"});
                             el.click(); return 'AGREE_CLICKED';
                         }
+                        
+                        // 3. Next
                         if (keywords.next_step.some(k => txt === k)) {
                             el.scrollIntoView({behavior: "instant", block: "center"});
                             el.click(); return 'NEXT_CLICKED';
                         }
+
+                        // 4. Cookie
                         if (keywords.cookie.some(k => txt.includes(k))) {
                             el.click(); return 'COOKIE_CLICKED';
                         }
+
+                        // 5. Popup rác
                         if (keywords.popup.some(k => txt === k)) {
                             el.click(); return 'POPUP_CLICKED';
                         }
                     }
-                    return null;
+                    
+                    
                 """)
 
-                if action_result == 'HOME_SCREEN_CLEAR':
-                    print("   [Step 3] Home Screen Clear. Done.")
-                    break # [EXIT LOOP] Đã thành công
-
-                if action_result:
-                    print(f"   [Step 3] Action triggered: {action_result}")
+                if clicked_action:
+                    print(f"   [Step 3] Action triggered: {clicked_action}")
                     
-                    if action_result == 'AGREE_CLICKED':
+                    if clicked_action == 'AGREE_CLICKED':
+                        # Confirm xong dễ bị crash hoặc load lâu
                         time.sleep(3); self._check_crash_recovery()
-                    elif action_result == 'OPTION_SELECTED':
+                    elif clicked_action == 'GET_STARTED_CLICKED':
+                        # Chuyển sang màn chọn Option
+                        time.sleep(2)
+                    elif clicked_action == 'OPTION_SELECTED':
+                        # Chọn xong thì chờ nút Next sáng lên để vòng lặp sau click Next
                         print("   [Step 3] Option selected. Waiting for Next button...")
                         time.sleep(1)
-                    elif action_result == 'AGE_CHECK_CLICKED': 
+                    
+                    elif clicked_action == 'AGE_CHECK_CLICKED': 
                         print("   [Step 3] Handled Age Verification (18+). Waiting...")
                         time.sleep(3)
                     else:
                         time.sleep(1.5)
+                    
                     continue
 
                 # ---------------------------------------------------------
-                # 2. CHECK CRASH (Python side fallback)
+                # 2. CHECK CRASH
                 # ---------------------------------------------------------
                 try:
+                    # Check URL lạ
                     curr_url = self.driver.current_url.lower()
                     if "ig_sso_users" in curr_url or "/api/v1/" in curr_url or "error" in curr_url:
                         print(f"   [Step 3] Crash URL detected. Reloading Home...")
                         self.driver.get("https://www.instagram.com/")
                         time.sleep(4); continue
 
+                    # Check Body
                     body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
                     if "page isn’t working" in body_text or "http error" in body_text:
                         print("   [Step 3] Crash Text detected. Reloading Home...")
@@ -187,17 +219,24 @@ class InstagramPostLoginStep:
                         time.sleep(4); continue
                 except: pass
 
+                # ---------------------------------------------------------
+                # 3. CHECK HOME (Final Condition)
+                # ---------------------------------------------------------
+                home_icons = self.driver.find_elements(By.CSS_SELECTOR, "svg[aria-label='Home'], svg[aria-label='Trang chủ']")
+                if len(home_icons) > 0:
+                    dialogs = self.driver.find_elements(By.CSS_SELECTOR, "div[role='dialog']")
+                    visible_dialogs = [d for d in dialogs if d.is_displayed()]
+                    
+                    if len(visible_dialogs) > 0:
+                        time.sleep(1); continue 
+                    else:
+                        print("   [Step 3] Home Screen Clear. Done.")
+                        break
+
                 time.sleep(0.5)
 
             except Exception as e:
                 time.sleep(1)
-
-    def _check_crash_recovery(self):
-        """Hàm phụ trợ check crash nhanh sau khi click Agree."""
-        try:
-            wait_dom_ready(self.driver, timeout=5)
-        except: pass
-
     def _navigate_to_profile(self, username):
         """Click vào biểu tượng Profile để vào trang cá nhân."""
         print("   [Step 3] Navigating to Profile...")
@@ -240,20 +279,31 @@ class InstagramPostLoginStep:
                 let folLink = document.querySelector("a[href*='followers']");
                 
                 if (folLink) {
-                    // CÁCH A: Cấu trúc DIV
-                    let wrapper = folLink.closest('div'); 
+                    // CÁCH A: Cấu trúc DIV (Dựa trên HTML bạn cung cấp)
+                    // Link nằm trong 1 thẻ div, thẻ div đó nằm trong container
+                    // Container chứa 3 div con: [0]=Post, [1]=Follower, [2]=Following
+                    let wrapper = folLink.closest('div'); // Div bao quanh thẻ a
+                    
                     if (wrapper && wrapper.parentElement) {
                         let container = wrapper.parentElement;
+                        // Lấy tất cả các thẻ div con trực tiếp
                         let divs = Array.from(container.children).filter(el => el.tagName === 'DIV');
+                        
+                        // Nếu có đúng 3 div con (Posts, Followers, Following)
                         if (divs.length >= 3) {
+                            // Posts là div đầu tiên
                             res.posts = divs[0].innerText;
+                            // Followers là div thứ 2 (chứa link followers)
                             res.followers = divs[1].innerText;
+                            // Following là div thứ 3
                             res.following = divs[2].innerText;
+                            
                             res.source = "div_structure";
                             return res;
                         }
                     }
-                    // CÁCH B: Cấu trúc UL/LI
+                    
+                    // CÁCH B: Cấu trúc UL/LI (Giao diện cũ/Desktop khác)
                     let ulContainer = folLink.closest("ul");
                     if (ulContainer) {
                         let items = ulContainer.querySelectorAll("li");
@@ -285,6 +335,8 @@ class InstagramPostLoginStep:
         # Hàm làm sạch số (100 posts -> 100)
         def clean_num(val):
             if not val: return "0"
+            # Regex bắt chuỗi số (hỗ trợ dấu phẩy, chấm, k, m, xuống dòng)
+            # HTML của bạn có nhiều thẻ span lồng nhau nên text có thể bị xuống dòng
             val = str(val).replace("\n", " ").strip()
             m = re.search(r'([\d.,]+[kKmM]?)', val)
             return m.group(1) if m else "0"
@@ -306,14 +358,14 @@ class InstagramPostLoginStep:
                 p, f1, f2 = "0", "0", "0"
                 
                 # Ưu tiên nguồn cấu trúc (DIV hoặc UL)
-                if raw_js and raw_js.get("source") in ["div_structure", "ul_structure"]:
+                if raw_js.get("source") in ["div_structure", "ul_structure"]:
                     p = clean_num(raw_js.get("posts"))
                     f1 = clean_num(raw_js.get("followers"))
                     f2 = clean_num(raw_js.get("following"))
                     print(f"   [Step 3] Crawled via DOM ({raw_js.get('source')}): P={p}, F1={f1}, F2={f2}")
 
                 # Nguồn Meta Tag
-                elif raw_js and raw_js.get("source") == "meta":
+                elif raw_js.get("source") == "meta":
                     p, f1, f2 = parse_meta(raw_js.get("raw_meta"))
                     print(f"   [Step 3] Crawled via META: P={p}, F1={f1}, F2={f2}")
 
@@ -331,7 +383,6 @@ class InstagramPostLoginStep:
                 print(f"   [Step 3] Crawl Error (Attempt {i}): {e}")
 
         return final_data
-
     def _get_cookie_string(self):
         """Lấy toàn bộ cookie hiện tại và gộp thành chuỗi."""
         try:

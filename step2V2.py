@@ -237,13 +237,6 @@ class InstagramExceptionStep:
             time.sleep(2)
             new_status = self._check_verification_result()
             print(f"   [Step 2] Status after Continue: {new_status}")
-            # Anti-hang: If status unchanged, refresh to avoid loop
-            if new_status == status:
-                print(f"   [Step 2] Status unchanged after handling {status}, refreshing to avoid hang...")
-                self.driver.refresh()
-                wait_dom_ready(self.driver, timeout=20)
-                time.sleep(2)
-                new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
         if status == "REQUIRE_PASSWORD_CHANGE":
@@ -264,13 +257,6 @@ class InstagramExceptionStep:
                 # de quy kiem tra lai trang thai
                 new_status = self._check_verification_result()
                 print(f"   [Step 2] Status after Password Change: {new_status}")
-                # Anti-hang: If status unchanged, refresh to avoid loop
-                if new_status == status:
-                    print(f"   [Step 2] Status unchanged after handling {status}, refreshing to avoid hang...")
-                    self.driver.refresh()
-                    wait_dom_ready(self.driver, timeout=20)
-                    time.sleep(2)
-                    new_status = self._check_verification_result()
                 return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             else:
                 raise Exception("STOP_FLOW_REQUIRE_PASSWORD_CHANGE: No password provided")
@@ -285,13 +271,7 @@ class InstagramExceptionStep:
                 wait_dom_ready(self.driver, timeout=20)
                 new_status = self._check_verification_result()
                 print(f"   [Step 2] Status after Birthday: {new_status}")
-                # Anti-hang: If status unchanged, refresh to avoid loop
-                if new_status == status:
-                    print(f"   [Step 2] Status unchanged after handling {status}, refreshing to avoid hang...")
-                    self.driver.refresh()
-                    wait_dom_ready(self.driver, timeout=20)
-                    time.sleep(2)
-                    new_status = self._check_verification_result()
+
                 # de quy kiem tra lai trang thai
                 return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             else:   
@@ -330,13 +310,7 @@ class InstagramExceptionStep:
                 wait_dom_ready(self.driver, timeout=20)
                 new_status = self._check_verification_result()
                 print(f"   [Step 2] Status after Birthday: {new_status}")
-                # Anti-hang: If status unchanged, refresh to avoid loop
-                if new_status == status:
-                    print(f"   [Step 2] Status unchanged after handling {status}, refreshing to avoid hang...")
-                    self.driver.refresh()
-                    wait_dom_ready(self.driver, timeout=20)
-                    time.sleep(2)
-                    new_status = self._check_verification_result()
+
                 # de quy kiem tra lai trang thai
                 return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             else:
@@ -689,57 +663,28 @@ class InstagramExceptionStep:
                 raise Exception("GMX_DIE")
         def input_code(code):
             code_input = None
-            input_css_list = ["input[id='security_code']", "#_r_7_", "input[name='email']", "input[name='security_code']", "input[type='text']", "input[name='verificationCode']"]
-            for attempt in range(3):
+            input_css_list = ["#_r_7_", "input[name='email']", "input[name='security_code']", "input[type='text']", "input[name='verificationCode']"]
+            for _ in range(3):
                 for sel in input_css_list:
-                    try:
-                        el = wait_element(self.driver, By.CSS_SELECTOR, sel, timeout=10)
-                        if el and el.is_displayed() and el.is_enabled():
-                            code_input = el
-                            print(f"   [Step 2] Found code input with selector: {sel}")
-                            break
-                    except Exception as e:
-                        print(f"   [Step 2] Error finding input with {sel}: {e}")
+                    el = wait_element(self.driver, By.CSS_SELECTOR, sel, timeout=20)
+                    if el:
+                        code_input = el
+                        break
                 if code_input:
                     break
                 time.sleep(1)
             if code_input:
                 try:
-                    print(f"   [Step 2] Attempting to input code {code}...")
-                    # First try to click and focus
-                    code_input.click()
-                    time.sleep(0.2)
-                    # Clear existing value
-                    code_input.send_keys(Keys.CONTROL + "a")
-                    code_input.send_keys(Keys.DELETE)
-                    time.sleep(0.1)
-                    # Input the code
+                    wait_and_click(self.driver, By.CSS_SELECTOR, code_input.get_attribute('css selector') or "input[type='text']", timeout=20)
+                    code_input.send_keys(Keys.CONTROL + "a"); code_input.send_keys(Keys.DELETE)
                     code_input.send_keys(code)
                     time.sleep(0.5)
-                    # Check if value was set
-                    current_value = code_input.get_attribute('value')
-                    print(f"   [Step 2] Input field value after send_keys: '{current_value}'")
-                    if current_value != code:
-                        print("   [Step 2] send_keys failed, trying JS...")
-                        # Fallback to JS
-                        self.driver.execute_script("arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", code_input, code)
-                        time.sleep(0.2)
-                        current_value = code_input.get_attribute('value')
-                        print(f"   [Step 2] Input field value after JS: '{current_value}'")
-                    # Send Enter
                     code_input.send_keys(Keys.ENTER)
                     time.sleep(1)
                     if "security_code" in self.driver.current_url:
-                        wait_and_click(self.driver, By.XPATH, "//button[@type='submit'] | //button[contains(text(), 'Confirm')] | //button[contains(text(), 'Xác nhận')]", timeout=10)
-                    print("   [Step 2] Code input completed.")
-                except Exception as e:
-                    print(f"   [Step 2] Error inputting code: {e}")
-                    # Last resort: JS input
-                    try:
-                        self.driver.execute_script(f"document.querySelector('input[id=\"security_code\"]').value = '{code}'; document.querySelector('input[id=\"security_code\"]').dispatchEvent(new Event('input', {{ bubbles: true }}));")
-                        print("   [Step 2] JS fallback input attempted.")
-                    except Exception as e2:
-                        print(f"   [Step 2] JS fallback failed: {e2}")
+                        wait_and_click(self.driver, By.XPATH, "//button[@type='submit'] | //button[contains(text(), 'Confirm')] | //button[contains(text(), 'Xác nhận')]")
+                except:
+                    pass
             else:
                 raise Exception("STOP_FLOW_CHECKPOINT: Cannot find code input")
         check_result = self._check_mail_flow(get_code, input_code, max_retries=5, timeout=TIMEOUT)
@@ -868,52 +813,28 @@ class InstagramExceptionStep:
 
     def _check_verification_result(self):
         # Timeout protection for verification result (max 120s)
-        # Optimized with JS checks to avoid hangs and speed up detection
         TIMEOUT = 120
         end_time = time.time() + TIMEOUT
-        consecutive_failures = 0
-        max_consecutive_failures = 10  # If JS fails 10 times in a row, consider timeout
         while time.time() < end_time:
             try:
-                # Fast JS checks to avoid slow text extraction and potential hangs
-                if self.driver.execute_script("return /the 6-digit code| mã 6 chữ số/.test(document.body.innerText.toLowerCase())"):
+                body = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+                if "the 6-digit code we sent to the email address" in body or "mã 6 chữ số mà chúng tôi đã gửi đến địa chỉ email" in body:
                     return "CHECKPOINT_MAIL"
                 
-                if self.driver.execute_script("return /change password|new password|create a strong password|change your password to secure your account/.test(document.body.innerText.toLowerCase())"):
+                if "change password" in body or "new password" in body or "create a strong password" in body or "change your password to secure your account" in body:
                     return "CHANGE_PASSWORD"
-                
-                if self.driver.execute_script("return /add phone number|send confirmation|log into another account/.test(document.body.innerText.toLowerCase())"):
-                    return "SUSPENDED_PHONE"
-                
-                if self.driver.execute_script("return /select your birthday|add your birthday/.test(document.body.innerText.toLowerCase())"):
-                    return "BIRTHDAY_SCREEN"
-                
-                if self.driver.execute_script("return /allow the use of cookies|posts|save your login info/.test(document.body.innerText.toLowerCase())"):
-                    return "SUCCESS"
-                
-                if self.driver.execute_script("return /suspended|đình chỉ/.test(document.body.innerText.toLowerCase())"):
-                    return "SUSPENDED"
-                
-                if self.driver.execute_script("return /please check the security code|code isn't right/.test(document.body.innerText.toLowerCase())"):
-                    return "WRONG_CODE"
-                
-                # URL checks
-                current_url = self.driver.current_url
-                if "instagram.com/" in current_url and "challenge" not in current_url:
-                    return "SUCCESS"
-                
-                # Element-based checks for logged in state
-                if self.driver.execute_script("return /posts|followers|search|home/.test(document.body.innerText.toLowerCase())"):
+                if "add phone number" in body or "send confirmation" in body or "log into another account" in body: return "SUSPENDED_PHONE"
+                if "select your birthday" in body or "add your birthday" in body: return "BIRTHDAY_SCREEN"
+                if "allow the use of cookies" in body or "posts" in body or "save your login info" in body: return "SUCCESS"
+                if "suspended" in body or "đình chỉ" in body: return "SUSPENDED"
+                if "please check the security code" in body or "code isn't right" in body: return "WRONG_CODE"
+                if "instagram.com/" in self.driver.current_url and "challenge" not in self.driver.current_url: return "SUCCESS"
+            # Nếu đã vào trong (có Post/Follower/Nav bar)
+                if "posts" in body or "followers" in body or "search" in body or "home" in body:
                     return "LOGGED_IN_SUCCESS"
-                
-                if self.driver.execute_script("return /save your login info|we can save your login info|lưu thông tin đăng nhập/.test(document.body.innerText.toLowerCase())"):
+
+                if("save your login info?" in body or "we can save your login info on this browser so you don't need to enter it again." in body or "lưu thông tin đăng nhập của bạn" in body):
                     return "LOGGED_IN_SUCCESS"
-                
-                consecutive_failures = 0  # Reset on successful check
-            except Exception as e:
-                consecutive_failures += 1
-                if consecutive_failures >= max_consecutive_failures:
-                    print(f"   [Step 2] Too many JS failures in verification check: {e}")
-                    break
+            except: pass
             time.sleep(1)
         return "TIMEOUT"

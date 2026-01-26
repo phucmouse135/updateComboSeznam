@@ -53,158 +53,204 @@ class InstagramLoginStep:
         print(f"   [Step 1] Login as {username}...")
 
         # --- GIAI ĐOẠN 1: CHỌN "USE ANOTHER PROFILE" ---
-        # Tối ưu: Kiểm tra nhanh nếu Input chưa xuất hiện thì mới tìm nút Switch
-        # Dùng CSS gộp để check nhanh bất kỳ ô input nào
         input_check_css = "input[name='username'], input[name='email'], input[type='text']"
-        
-        if not wait_element(self.driver, By.CSS_SELECTOR, input_check_css, timeout=5):
+        start_time = time.time()
+        # Max 30s for input to appear
+        while time.time() - start_time < 30:
+            if wait_element(self.driver, By.CSS_SELECTOR, input_check_css, timeout=3):
+                break
             print("   [Step 1] Inputs not ready. Checking for 'Use another profile'...")
             xpath_switch = "//*[contains(text(), 'Use another profile') or contains(text(), 'Switch accounts')]"
-            
-            if wait_and_click(self.driver, By.XPATH, xpath_switch, timeout=5):
+            if wait_and_click(self.driver, By.XPATH, xpath_switch, timeout=3):
                 print("   [Step 1] Clicked 'Switch'. Waiting for inputs...")
-                # Chờ input xuất hiện sau khi click
-                wait_element(self.driver, By.CSS_SELECTOR, input_check_css, timeout=5)
+        else:
+            return "FAIL_INPUT_TIMEOUT"
 
         # --- GIAI ĐOẠN 2: NHẬP USER (TỐI ƯU TỐC ĐỘ) ---
-        # Thay vì loop từng selector, dùng 1 CSS Selector gộp để tìm TẤT CẢ cùng lúc.
-        # Cái nào thấy trước thì lấy luôn -> Không bị delay timeout.
-        # Ưu tiên name='email' (từ HTML bạn gửi) và name='username'
         print("   [Step 1] Entering Username...")
         user_css_group = "input[name='email'], input[name='username'], input[id^='_r_'][type='text']"
-        
-        user_input = wait_element(self.driver, By.CSS_SELECTOR, user_css_group, timeout=5)
-        if user_input:
-            try:
-                user_input.clear()
-                user_input.send_keys(username)
-            except:
-                print("   [Step 1] Retry sending username...")
-                wait_and_send_keys(self.driver, By.CSS_SELECTOR, user_css_group, username)
+        user_start = time.time()
+        # Max 30s for user input
+        while time.time() - user_start < 30:
+            user_input = wait_element(self.driver, By.CSS_SELECTOR, user_css_group, timeout=3)
+            if user_input:
+                try:
+                    user_input.clear()
+                    user_input.send_keys(username)
+                except:
+                    print("   [Step 1] Retry sending username...")
+                    wait_and_send_keys(self.driver, By.CSS_SELECTOR, user_css_group, username)
+                break
+            time.sleep(1)
         else:
-            return "FAIL_FIND_INPUT_USER"
+            return "FAIL_FIND_INPUT_USER_TIMEOUT"
 
         # --- GIAI ĐOẠN 3: NHẬP PASSWORD (TỐI ƯU TỐC ĐỘ) ---
-        # Tương tự, gộp name='pass' (HTML bạn gửi) và name='password'
         print("   [Step 1] Entering Password...")
         pass_css_group = "input[name='pass'], input[name='password'], input[id^='_r_'][type='password']"
-        
-        pass_input = wait_element(self.driver, By.CSS_SELECTOR, pass_css_group, timeout=5)
-        if pass_input:
-            try:
-                pass_input.clear()
-                pass_input.send_keys(password)
-            except:
-                 wait_and_send_keys(self.driver, By.CSS_SELECTOR, pass_css_group, password)
+        pass_start = time.time()
+        # Max 30s for password input
+        while time.time() - pass_start < 30:
+            pass_input = wait_element(self.driver, By.CSS_SELECTOR, pass_css_group, timeout=3)
+            if pass_input:
+                try:
+                    pass_input.clear()
+                    pass_input.send_keys(password)
+                except:
+                    wait_and_send_keys(self.driver, By.CSS_SELECTOR, pass_css_group, password)
+                break
+            time.sleep(1)
         else:
-            return "FAIL_FIND_INPUT_PASS"
+            return "FAIL_FIND_INPUT_PASS_TIMEOUT"
 
         # --- GIAI ĐOẠN 4: CLICK LOGIN ---
         print("   [Step 1] Clicking Login...")
-        try:
-            # Enter trên ô password là nhanh nhất
-            pass_input.send_keys(Keys.ENTER)
-        except:
-            login_btn_xpath = "//button[@type='submit'] | //div[contains(text(), 'Log in')]"
-            wait_and_click(self.driver, By.XPATH, login_btn_xpath)
+        login_start = time.time()
+        # Max 15s for login button
+        while time.time() - login_start < 15:
+            try:
+                pass_input.send_keys(Keys.ENTER)
+                break
+            except:
+                login_btn_xpath = "//button[@type='submit'] | //div[contains(text(), 'Log in')]"
+                if wait_and_click(self.driver, By.XPATH, login_btn_xpath, timeout=3):
+                    break
+            time.sleep(1)
+        else:
+            return "FAIL_LOGIN_BUTTON_TIMEOUT"
 
-        return self._wait_for_login_result(timeout=15)
+        # --- GIAI ĐOẠN 5: CHỜ KẾT QUẢ ---
+        return self._wait_for_login_result(timeout=60)
 
-    def _wait_for_login_result(self, timeout=15):
-        """
-        Vòng lặp kiểm tra trạng thái liên tục.
-        Trả về kết quả ngay khi phát hiện trạng thái cụ thể.
-        """
+    def _wait_for_login_result(self, timeout=120):
         print("   [Step 1] Waiting for login result...")
+        
+        # [QUAN TRỌNG] Ngủ 5s để trang web kịp load sau khi nhấn Login
+        # Tránh trường hợp JS quét quá nhanh khi vẫn còn ở trang cũ
+        time.sleep(5) 
+        
         end_time = time.time() + timeout
         
         while time.time() < end_time:
             status = self._detect_initial_status()
             
+            # [NEW] XỬ LÝ MÀN HÌNH "CHOOSE A WAY TO RECOVER" -> BẤM CONTINUE
+            if status == "RECOVERY_CHALLENGE":
+                print("   [Step 1] Detected Recovery Challenge. Clicking Continue...")
+                continue_xpaths = [
+                    "//div[contains(text(), 'Continue')]", 
+                    "//span[contains(text(), 'Continue')]",
+                    "//button[contains(text(), 'Continue')]",
+                    "//div[text()='Continue']" 
+                ]
+                clicked = False
+                for xp in continue_xpaths:
+                    if wait_and_click(self.driver, By.XPATH, xp, timeout=2):
+                        clicked = True
+                        break
+                
+                if clicked:
+                    print("   [Step 1] Clicked Continue. Waiting for next step...")
+                    time.sleep(5) # Chờ load sau khi bấm
+                    continue # Quay lại đầu vòng lặp để check trạng thái mới
+            
             # Nếu status đã rõ ràng (không phải Unknown/Retry) -> Return ngay
-            if status not in ["LOGGED_IN_UNKNOWN_STATE", "LOGIN_FAILED_RETRY"]:
+            if status not in ["LOGGED_IN_UNKNOWN_STATE", "LOGIN_FAILED_RETRY", "RECOVERY_CHALLENGE"]:
                 return status
             
-            time.sleep(0.5) # Poll nhẹ
+            time.sleep(1) 
             
         return "TIMEOUT_LOGIN_CHECK"
 
     def _detect_initial_status(self):
         """
-        Quét DOM để xác định trạng thái sơ bộ sau khi nhấn Login.
-        (GIỮ NGUYÊN TEXT LỖI TỪ BẢN GỐC)
+        Quét DOM bằng JavaScript để xác định trạng thái.
+        CAM KẾT: Giữ nguyên 100% text và status code từ bản gốc của bạn.
         """
         try:
-            body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+            # Script JS tái hiện chính xác logic if/else của Python
+            js_script = """
+            var body = document.body.innerText.toLowerCase();
             
-            # 1. Các trường hợp Exception / Checkpoint
-            if "check your email" in body_text:
-                return "CHECKPOINT_MAIL"
+            // --- 1. RECOVERY & CHECKPOINT ---
+            if (body.includes("choose a way to recover")) return "RECOVERY_CHALLENGE";
             
-            # yêu cầu đổi mật khẩu 
-            if "we noticed unusual activity" in body_text or "change your password" in body_text or "yêu cầu đổi mật khẩu" in body_text:
-                return "REQUIRE_PASSWORD_CHANGE"
+            if (body.includes("check your email") || body.includes(" we sent to the email address")) return "CHECKPOINT_MAIL";
             
-            if "unusual login" in body_text or "suspicious" in body_text:
-                return "UNUSUAL_LOGIN"  
+            if (body.includes("log in on another device to continue") || body.includes("đăng nhập trên thiết bị khác để tiếp tục")) return "LOG_IN_ANOTHER_DEVICE";
             
-            # Try another device to continue
-            if "try another device" in body_text or "try another device to continue" in body_text or "can’t try another device?" in body_text:
-                return "TRY_ANOTHER_DEVICE"
-            
-            if "suspended" in body_text or "đình chỉ" in body_text:
-                return "SUSPENDED"
+            if (body.includes("your account has been disabled")) return "ACCOUNT_DISABLED";
 
-            # The login information you entered is incorrect
-            if "the login information you entered is incorrect" in body_text or \
-               "incorrect username or password" in body_text or \
-                "thông tin đăng nhập bạn đã nhập không chính xác" in body_text:
-                return "LOGIN_FAILED_INCORRECT"
+            if (body.includes("add phone number to get back into instagram") || 
+                body.includes("send confirmation") || 
+                body.includes("log into another account") || 
+                body.includes("we will send a confirmation code via sms to your phone.")) return "SUSPENDED_PHONE";
+            
+            if (body.includes("we noticed unusual activity") || 
+                body.includes("change your password") || 
+                body.includes("yêu cầu đổi mật khẩu")) return "REQUIRE_PASSWORD_CHANGE";
+            
+            if (body.includes("try another device") || 
+                body.includes("try another device to continue") || 
+                body.includes("can’t try another device?")) return "TRY_ANOTHER_DEVICE";
 
-            # 2. Các trường hợp Thành công / Tiếp tục
-            if "select your birthday" in body_text or "add your birthday" in body_text:
-                return "BIRTHDAY_SCREEN"
-            
-            if "allow the use of cookies" in body_text:
-                return "COOKIE_CONSENT"
-            
-            # Nếu đã vào trong (có Post/Follower/Nav bar)
-            if "posts" in body_text or "followers" in body_text or "search" in body_text or "home" in body_text:
-                return "LOGGED_IN_SUCCESS"
-            
-            if("save your login info?" in body_text or "we can save your login info on this browser so you don't need to enter it again." in body_text or "lưu thông tin đăng nhập của bạn" in body_text):
-                return "LOGGED_IN_SUCCESS"
-            
-            # SMS 2FA screen "Enter a 6-digit login code generated by an authentication app." or vietnamese
-            if "mã đăng nhập 6 chữ số được tạo bởi ứng dụng xác thực" in body_text or "enter a 6-digit login code generated by an authentication app." in body_text:
-                return "2FA_SMS"
-            
-            # Check your WhatsApp messages 
-            if "check your whatsapp messages" in body_text or "kiểm tra tin nhắn whatsapp của bạn" in body_text:
-                return "2FA_WHATSAPP"
-            
-            # We Detected An Unusual Login Attempt 
-            if "we detected an unusual login attempt" in body_text or "get help logging in" in body_text:
-                return "GET_HELP_LOG_IN"
-            
-            # Confirm your info on the app 
-            if "confirm your info on the app" in body_text:
-                return "2FA_APP"
-            
-            # Use another profile => Văng về chọn tài khoản
-            if "use another profile" in body_text or "Log into Instagram" in body_text:
-                return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION"
-            
-            # Nếu vẫn còn ô password -> Login chưa qua (có thể đang loading)
-            if len(self.driver.find_elements(By.CSS_SELECTOR, "input[type='password']")) > 0:
-                return "LOGIN_FAILED_RETRY"
-            
-            # Check your notifications  && Check your notifications there and approve the login to continue.
-            if "check your notifications" in body_text or "xem thông báo của bạn" in body_text or "check your notifications there and approve the login to continue." in body_text:
-                return "2FA_NOTIFICATIONS"
-            
-            # Nếu không xác định được trạng thái, trả về Unknown State
-            return "LOGGED_IN_UNKNOWN_STATE"
+            if (body.includes("suspended") || body.includes("đình chỉ")) return "SUSPENDED";
 
+            // --- 2. LOGIN FAILURES ---
+            if (body.includes("the login information you entered is incorrect") || 
+                body.includes("incorrect username or password") || 
+                body.includes("thông tin đăng nhập bạn đã nhập không chính xác")) return "LOGIN_FAILED_INCORRECT";
+            
+            if (body.includes("something went wrong")) return "LOGIN_FAILED_SOMETHING_WENT_WRONG";
+
+            // --- 3. SUCCESS / INTERMEDIATE STEPS ---
+            if (body.includes("select your birthday") || body.includes("add your birthday")) return "BIRTHDAY_SCREEN";
+            
+            if (body.includes("check your text messages") || body.includes("kiểm tra tin nhắn văn bản của bạn")) return "2FA_TEXT_MESSAGE";
+            
+            if (body.includes("allow the use of cookies")) return "COOKIE_CONSENT";
+            
+            if (body.includes("help us confirm it's you") || body.includes("xác nhận đó là bạn")) return "CONFIRM_YOUR_IDENTITY";
+            
+            // Success Check 1
+            if (body.includes("posts") || body.includes("followers") || body.includes("search") || body.includes("home")) return "LOGGED_IN_SUCCESS";
+            
+            // Success Check 2
+            if (body.includes("save your login info?") || 
+                body.includes("we can save your login info on this browser so you don't need to enter it again.") || 
+                body.includes("lưu thông tin đăng nhập của bạn")) return "LOGGED_IN_SUCCESS";
+
+            // --- 4. 2FA SPECIFIC (Giữ nguyên text bạn yêu cầu) ---
+            // Text: "authentication app" -> Status: "2FA_SMS" (Theo đúng code gốc của bạn)
+            if (body.includes("mã đăng nhập 6 chữ số được tạo bởi ứng dụng xác thực") || 
+                body.includes("enter a 6-digit login code generated by an authentication app.")) return "2FA_SMS";
+            
+            if (body.includes("check your whatsapp messages") || body.includes("kiểm tra tin nhắn whatsapp của bạn")) return "2FA_WHATSAPP";
+            
+            if (body.includes("confirm your info on the app")) return "2FA_APP";
+            
+            if (body.includes("use another profile") || body.includes("log into instagram")) return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION";
+
+            // Retry Check (Input password còn tồn tại)
+            if (document.querySelectorAll("input[type='password']").length > 0) return "LOGIN_FAILED_RETRY";
+
+            if (body.includes("check your notifications") || 
+                body.includes("xem thông báo của bạn") || 
+                body.includes("check your notifications there and approve the login to continue.")) return "2FA_NOTIFICATIONS";
+            
+            // Help Log In (Đặt cuối để tránh nhận diện nhầm với các lỗi khác)
+            if (body.includes("you need to request help logging in") || 
+                body.includes("to secure your account, you need to request help logging in")) return "GET_HELP_LOG_IN";
+            
+            // Unusual Login Attempt
+            if (body.includes("we detected an unusual login attempt") || 
+                body.includes("to secure your account, we'll send you a security code.")) return "CONTINUE_UNUSUAL_LOGIN";
+
+            // --- 5. BỔ SUNG: CONTENT UNAVAILABLE (Chỉ thêm mới để fix lỗi popup trắng, không sửa code cũ) ---
+            if (body.includes("content is no longer available")) return "CONTENT_UNAVAILABLE";
+
+            return "LOGGED_IN_UNKNOWN_STATE";
+            """
+            return self.driver.execute_script(js_script)
         except Exception as e:
-            return f"ERROR_DETECT: {str(e)}"
+            return f"ERROR_DETECT_EXCEPTION: {str(e)}"

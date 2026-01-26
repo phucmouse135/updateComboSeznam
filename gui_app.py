@@ -16,6 +16,17 @@ from step4_2fa import Instagram2FAStep
 # ----------------------
 
 class AutomationGUI:
+    def _on_password_changed(self, username, new_password):
+        """
+        Callback này sẽ được gọi khi đổi mật khẩu thành công.
+        Tìm dòng có username, cập nhật cột mật khẩu (index 3) trên treeview.
+        """
+        for item_id in self.tree.get_children():
+            vals = self.tree.item(item_id, "values")
+            if str(vals[2]) == str(username):
+                self.update_tree_item(item_id, {3: new_password})
+                break
+
     def __init__(self, root):
         self.root = root
         self.root.title("Instagram Automation Tool Pro")
@@ -41,6 +52,9 @@ class AutomationGUI:
         # [NEW] Queue quản lý vị trí cửa sổ (Slot ID)
         self.window_slots = queue.Queue()
 
+        # Callback: cập nhật mật khẩu mới lên GUI khi đổi pass thành công
+        self.on_password_changed = self._on_password_changed
+    
         # --- CẤU HÌNH CỘT (INDEX 0 -> 12) ---
         self.columns = (
             "uid",          # 0
@@ -183,36 +197,36 @@ class AutomationGUI:
 
     # --- PROCESS LOGIC (ĐÃ CẬP NHẬT WINDOW RECT) ---
     def process_single_account(self, item_id, window_rect=None):
+        import time
+        start_time = time.time()
         values = list(self.tree.item(item_id)['values'])
         acc = {
             "uid": values[0], "linked_mail": values[1], "username": values[2],
             "password": values[3], "gmx_user": values[5], "gmx_pass": values[6]
         }
-        
         self.msg_queue.put(("UPDATE_STATUS", (item_id, "Running...", "running")))
         driver = None
-        
         try:
-            # [UPDATE] Truyền tham số window_rect vào hàm lấy driver
             driver = get_driver(headless=self.headless_var.get(), window_rect=window_rect)
-            
             # Step 1: Login
             step1 = InstagramLoginStep(driver)
-            step1.load_base_cookies("Wed New Instgram  2026 .json") 
+            step1.load_base_cookies("Wed New Instgram  2026 .json")
             status = step1.perform_login(acc['username'], acc['password'])
-            
             if "FAIL" in status:
-                self.msg_queue.put(("FAIL_CRITICAL", (item_id, status)))
+                end_time = time.time()
+                elapsed = end_time - start_time
+                note_time = f"Failed in {elapsed:.1f}s"
+                self.msg_queue.put(("FAIL_CRITICAL", (item_id, status, note_time)))
                 return
-
+            time.sleep(2)  # Chờ ổn định trang sau login
             # Step 2: Handle Exception
             step2 = InstagramExceptionStep(driver)
-            step2.handle_status(status, acc['username'], acc['gmx_user'], acc['gmx_pass'], acc['linked_mail'])
-
+            # Truyền callback cập nhật mật khẩu cho step2
+            step2.on_password_changed = self.on_password_changed
+            step2.handle_status(status, acc['username'], acc['gmx_user'], acc['gmx_pass'], acc['linked_mail'], acc['password'])
             # Step 3: Crawl
             step3 = InstagramPostLoginStep(driver)
             data = step3.process_post_login(acc['username'])
-            
             # Gửi Cookie và Data về GUI
             self.msg_queue.put(("UPDATE_CRAWL", (item_id, {
                 "post": data.get('posts', '0'),
@@ -220,20 +234,27 @@ class AutomationGUI:
                 "following": data.get('following', '0'),
                 "cookie": data.get('cookie', '')
             })))
-
             # Step 4: 2FA
             step4 = Instagram2FAStep(driver)
+            # Truyền callback để cập nhật mã 2FA lên GUI ngay khi lấy được
+            def on_secret_key_found(secret_key):
+                self.msg_queue.put(("UPDATE_STATUS", (item_id, secret_key, None)))
+            step4.on_secret_key_found = on_secret_key_found
             key = step4.setup_2fa(acc['gmx_user'], acc['gmx_pass'], acc['username'], acc['linked_mail'])
-            
-            if key == "2FA_ALREADY_ON":
-                self.msg_queue.put(("SUCCESS", (item_id, "EXISTING_2FA")))
-            else:
-                self.msg_queue.put(("SUCCESS", (item_id, key)))
-
+            # Always use the original format for 2FA key
+            key_raw = getattr(step4, 'last_secret_key_raw', key)
+            end_time = time.time()
+            elapsed = end_time - start_time
+            note_time = f"Done in {elapsed:.1f}s"
+            self.msg_queue.put(("SUCCESS", (item_id, key_raw, note_time)))
         except Exception as e:
+            end_time = time.time()
+            elapsed = end_time - start_time
+            note_time = f"Failed in {elapsed:.1f}s"
             msg = str(e).replace("STOP_FLOW_", "")
-            self.msg_queue.put(("FAIL_CRITICAL", (item_id, msg)))
+            self.msg_queue.put(("FAIL_CRITICAL", (item_id, msg, note_time)))
         finally:
+            print(f"[TIME] Case {acc['username']} finished in {elapsed:.2f} seconds.")
             if driver: 
                 try: driver.quit()
                 except: pass
@@ -290,24 +311,32 @@ class AutomationGUI:
     # --- CÁC HÀM KHÁC (GIỮ NGUYÊN) ---
     def start_automation(self):
         items = self.tree.get_children()
-        pending_items = [i for i in items if self.tree.item(i)['values'][-1] == "Pending"]
-        
+        # Lấy các item Pending
+        pending_items = []
+        for i in items:
+            vals = self.tree.item(i)['values']
+            if vals[-1] == "Pending":
+                twofa_val = str(vals[4]).strip()
+                if twofa_val == "":
+                    pending_items.append(i)
+                else:
+                    # Nếu 2FA đã có, đánh dấu success luôn
+                    note_time = "Skipped (2FA exists)"
+                    self.update_tree_item(i, {12: f"Success | {note_time}"}, "success")
+                    self.success_count += 1
         if not pending_items:
             messagebox.showinfo("Info", "No 'Pending' items to process.")
+            self.update_stats_label()
             return
 
         self.is_running = True
         self.stop_event.clear()
-        
         self.btn_start.config(state="disabled")
         self.btn_stop.config(state="normal", text="STOP")
         self.status_var.set("Running...")
-        
         self.processed_count = 0
-        self.success_count = 0
         self.fail_count = 0
-        self.lbl_success.config(text="Success: 0")
-        
+        self.lbl_success.config(text=f"Success: {self.success_count}")
         num_threads = self.thread_count_var.get()
         threading.Thread(target=self.thread_manager, args=(pending_items, num_threads), daemon=True).start()
 
@@ -338,19 +367,19 @@ class AutomationGUI:
                     })
                 
                 elif msg_type == "SUCCESS":
-                    item_id, key = data
+                    item_id, key, note_time = data
                     self.success_count += 1
                     self.processed_count += 1
                     # Cập nhật Key 2FA(4), Note(12)
-                    self.update_tree_item(item_id, {4: key, 12: "Success"}, "success")
+                    self.update_tree_item(item_id, {4: key, 12: f"Success | {note_time}"}, "success")
                     self.update_stats_label()
                     self.write_result_to_output(item_id, success=True)
                 
                 elif msg_type == "FAIL_CRITICAL":
-                    item_id, err = data
+                    item_id, err, note_time = data
                     self.fail_count += 1
                     self.processed_count += 1
-                    self.update_tree_item(item_id, {8: err[:60], 12: "Failed"}, "error") 
+                    self.update_tree_item(item_id, {8: err[:60], 12: f"Failed | {note_time}"}, "error") 
                     self.update_stats_label()
                     self.write_result_to_output(item_id, success=False)
                 

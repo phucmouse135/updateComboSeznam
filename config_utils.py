@@ -104,30 +104,47 @@ def wait_dom_ready(driver, timeout=10, poll=0.1):
 
 def wait_element(driver, by, value, timeout=10, poll=0.1, visible=True):
     end_time = time.time() + timeout
+    last_found = None
     while time.time() < end_time:
         try:
             elements = driver.find_elements(by, value)
             for el in elements:
-                if not visible or el.is_displayed():
-                    return el
+                # Chờ element thực sự hiển thị và có thể tương tác
+                for _ in range(10):
+                    if not visible or (el.is_displayed() and el.is_enabled()):
+                        return el
+                    time.sleep(0.1)
+                last_found = el
         except Exception:
             pass
         time.sleep(poll)
-    return None
+    # Nếu hết thời gian mà vẫn chưa clickable, trả về phần tử cuối cùng tìm thấy (nếu có)
+    return last_found
 
 def wait_and_click(driver, by, value, timeout=10, poll=0.1):
-    el = wait_element(driver, by, value, timeout=timeout, poll=poll, visible=True)
-    if not el:
-        return False
-    try:
-        el.click()
-        return True
-    except Exception:
+    end_time = time.time() + timeout
+    while time.time() < end_time:
         try:
-            driver.execute_script("arguments[0].click();", el)
-            return True
+            el = driver.find_element(by, value)
+            # Chờ element thực sự hiển thị và có thể tương tác
+            for _ in range(10):
+                if el.is_displayed() and el.is_enabled():
+                    try:
+                        el.click()
+                        return True
+                    except Exception:
+                        pass
+                time.sleep(0.1)
+            # Nếu click thường lỗi, thử JS Click ngay tại đây để cứu vãn
+            try:
+                driver.execute_script("arguments[0].click();", el)
+                return True
+            except:
+                pass
         except Exception:
-            return False
+            pass
+        time.sleep(poll)
+    return False
 
 def wait_and_send_keys(driver, by, value, keys, timeout=10, poll=0.1, clear_first=True):
     el = wait_element(driver, by, value, timeout=timeout, poll=poll, visible=True) 
