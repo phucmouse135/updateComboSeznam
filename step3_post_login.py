@@ -232,6 +232,10 @@ class InstagramPostLoginStep:
         print(f"   [Step 3] Crawling data for {username}...")
         final_data = {"posts": "0", "followers": "0", "following": "0"}
         
+        # Scroll down to load stats
+        self.driver.execute_script("window.scrollTo(0, 500);")
+        time.sleep(1)
+        
         js_crawl = """
             function getInfo() {
                 let res = {posts: "0", followers: "0", following: "0", source: "none"};
@@ -320,7 +324,7 @@ class InstagramPostLoginStep:
                 temp_data = {"posts": p, "followers": f1, "following": f2}
 
                 # Điều kiện chấp nhận: Ít nhất 1 trường có dữ liệu
-                if temp_data["followers"] != "0" or temp_data["posts"] != "0":
+                if temp_data["followers"] != "0" or temp_data["posts"] != "0" or temp_data["following"] != "0":
                     final_data = temp_data
                     print(f"   [Step 3] Success (Attempt {i}): {final_data}")
                     break

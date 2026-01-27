@@ -21,87 +21,84 @@ def _decode_str(header_value):
         return text
     except: return str(header_value)
 
-def _fetch_latest_unseen_mail(gmx_user, gmx_pass, subject_keywords, target_username, loop_duration=15):
+def _fetch_latest_unseen_mail(gmx_user, gmx_pass, subject_keywords, target_username = None, loop_duration=30):
     """
     Hàm Core Tối Ưu:
-    - Giữ kết nối IMAP trong `loop_duration` giây.
-    - Quét liên tục (Polling) để bắt mail ngay khi nó đến.
+    - Quét mail một lần duy nhất (Single-scan).
+    - Tự động đóng kết nối (Logout) ngay sau khi xong việc.
+    - Raise GMX_DIE nếu lỗi login để lớp bên ngoài ngưng retry.
     """
     if not gmx_user or not gmx_pass: return None
     if "@" not in gmx_user: gmx_user += "@gmx.net"
 
-    # Set timeout socket để tránh treo tool nếu mạng lag
-    socket.setdefaulttimeout(20) 
+    # Set timeout để tránh treo luồng nếu server GMX phản hồi chậm
+    socket.setdefaulttimeout(15) 
     mail = None
 
     try:
         mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
         mail.login(gmx_user, gmx_pass)
         
-        # Vòng lặp quét mail (Polling) trong một kết nối duy nhất
-        end_time = time.time() + loop_duration
+        # Select INBOX
+        mail.select("INBOX")
         
-        while time.time() < end_time:
-            # Select INBOX mỗi lần lặp để làm mới danh sách mail
-            mail.select("INBOX")
+        # Tìm mail CHƯA ĐỌC từ Instagram
+        status, messages = mail.search(None, '(UNSEEN FROM "Instagram")')
+        
+        if status == "OK" and messages[0]:
+            mail_ids = messages[0].split()
+            # Ưu tiên mail mới nhất
+            latest_id = mail_ids[-1] 
             
-            # Tìm mail CHƯA ĐỌC từ Instagram
-            status, messages = mail.search(None, '(UNSEEN FROM "Instagram")')
-            
-            if status == "OK" and messages[0]:
-                mail_ids = messages[0].split()
-                # Lấy mail mới nhất (ID lớn nhất nằm cuối)
-                latest_id = mail_ids[-1] 
+            # --- TỐI ƯU: Chỉ tải Header trước ---
+            _, msg_header = mail.fetch(latest_id, '(BODY.PEEK[HEADER])')
+            header_content = email.message_from_bytes(msg_header[0][1])
+            subject = _decode_str(header_content.get("Subject", "")).lower()
+
+            # Kiểm tra Subject nhanh
+            if any(k.lower() in subject for k in subject_keywords):
+                # Khớp subject mới tải toàn bộ Body
+                _, msg_data = mail.fetch(latest_id, "(RFC822)")
+                full_msg = email.message_from_bytes(msg_data[0][1])
                 
-                # --- TỐI ƯU: CHỈ TẢI HEADER TRƯỚC ĐỂ CHECK SUBJECT ---
-                _, msg_header = mail.fetch(latest_id, '(BODY.PEEK[HEADER])')
-                header_content = email.message_from_bytes(msg_header[0][1])
-                subject = _decode_str(header_content["Subject"]).lower()
+                body = ""
+                if full_msg.is_multipart():
+                    for part in full_msg.walk():
+                        if part.get_content_type() == "text/plain":
+                            body += part.get_payload(decode=True).decode('utf-8', errors='ignore')
+                            break
+                else:
+                    body = full_msg.get_payload(decode=True).decode('utf-8', errors='ignore')
+                
+                body_lower = body.lower()
 
-                # Check Subject nhanh
-                if any(k in subject for k in subject_keywords):
-                    # Nếu Subject khớp, mới tải Body
-                    _, msg_data = mail.fetch(latest_id, "(RFC822)")
-                    full_msg = email.message_from_bytes(msg_data[0][1])
+                # Kiểm tra Username (Đảm bảo mail đúng cho tài khoản đang check)
+                if target_username and target_username.lower() not in body_lower:
+                    print(f"   [IMAP] Mismatch username in mail {latest_id}. Marking Seen.")
+                    mail.store(latest_id, '+FLAGS', '\\Seen')
+                    return None
+
+                # Extract Code (6-8 số)
+                m = re.search(r'\b(\d{6,8})\b', body)
+                if m:
+                    code = m.group(1)
+                    # Đánh dấu đã đọc thành công
+                    mail.store(latest_id, '+FLAGS', '\\Seen')
+                    return code
                     
-                    body = ""
-                    if full_msg.is_multipart():
-                        for part in full_msg.walk():
-                            if part.get_content_type() == "text/plain":
-                                body += part.get_payload(decode=True).decode('utf-8', errors='ignore')
-                                break
-                    else:
-                        body = full_msg.get_payload(decode=True).decode('utf-8', errors='ignore')
-                    
-                    body_lower = body.lower()
-
-                    # Check Username (Bắt buộc phải có trong nội dung mail)
-                    if target_username and target_username.lower() not in body_lower:
-                        print(f"   [IMAP] Mismatch username in mail {latest_id}. Skipping.")
-                        # Đánh dấu đã đọc để không check lại mail sai này nữa
-                        mail.store(latest_id, '+FLAGS', '\\Seen')
-                        continue
-
-                    # Extract Code (6-8 số)
-                    m = re.search(r'\b(\d{6,8})\b', body)
-                    if m:
-                        code = m.group(1)
-                        print(f"   [IMAP] => FOUND CODE: {code}")
-                        # Đánh dấu đã đọc
-                        mail.store(latest_id, '+FLAGS', '\\Seen')
-                        return code
-            
-            # Nếu chưa thấy mail, ngủ ngắn 1.5s rồi quét lại (vẫn giữ kết nối, không logout)
-            time.sleep(1.5)
-
     except Exception as e:
-        print(f"   [IMAP Error] {e}")
-        error_msg = str(e).lower()
-        if "authentication failed" in error_msg or "login failed" in error_msg:
+        err_str = str(e).lower()
+        print(f"   [IMAP Error] {err_str}")
+        # Nếu sai pass/die mail, báo lỗi để lớp ngoài ngưng retry vô ích
+        if any(x in err_str for x in ["authentication failed", "login failed", "invalid user", "credential"]):
             raise Exception("GMX_DIE")
     finally:
-        try: mail.logout()
-        except: pass
+        if mail:
+            try:
+                mail.close() # Đóng mailbox
+                mail.logout() # Ngắt kết nối
+            except:
+                pass
     
     return None
 

@@ -227,6 +227,7 @@ class AutomationGUI:
             # Step 3: Crawl
             step3 = InstagramPostLoginStep(driver)
             data = step3.process_post_login(acc['username'])
+            
             # Gửi Cookie và Data về GUI
             self.msg_queue.put(("UPDATE_CRAWL", (item_id, {
                 "post": data.get('posts', '0'),
@@ -234,6 +235,15 @@ class AutomationGUI:
                 "following": data.get('following', '0'),
                 "cookie": data.get('cookie', '')
             })))
+            
+            # Thay đổi: Đánh dấu Success ngay sau crawl
+            self.msg_queue.put(("UPDATE_STATUS", (item_id, "Success", "success")))
+            # self.success_count += 1  # Tăng đếm success ngay
+
+            time.sleep(1)
+            
+            
+            key = ""
             # Step 4: 2FA
             step4 = Instagram2FAStep(driver)
             # Truyền callback để cập nhật mã 2FA lên GUI ngay khi lấy được
@@ -252,6 +262,7 @@ class AutomationGUI:
             elapsed = end_time - start_time
             note_time = f"Failed in {elapsed:.1f}s"
             msg = str(e).replace("STOP_FLOW_", "")
+            self.msg_queue.put(("UPDATE_2FA", (item_id, msg)))
             self.msg_queue.put(("FAIL_CRITICAL", (item_id, msg, note_time)))
         finally:
             print(f"[TIME] Case {acc['username']} finished in {elapsed:.2f} seconds.")
@@ -294,6 +305,7 @@ class AutomationGUI:
                 except Exception as e:
                     print(f"Worker Error: {e}")
                     # Đảm bảo không bị mất slot nếu lỗi xảy ra ở bước lấy slot
+                    self.window_slots.put(slot_id)
                     pass
                 
                 if not self.is_running: break
