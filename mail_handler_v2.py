@@ -42,49 +42,86 @@ def _fetch_latest_unseen_mail(gmx_user, gmx_pass, subject_keywords, target_usern
         # Select INBOX
         mail.select("INBOX")
         
-        # Tìm mail CHƯA ĐỌC từ Instagram
-        status, messages = mail.search(None, '(UNSEEN FROM "Instagram")')
-        
-        if status == "OK" and messages[0]:
-            mail_ids = messages[0].split()
-            # Ưu tiên mail mới nhất
-            latest_id = mail_ids[-1] 
-            
-            # --- TỐI ƯU: Chỉ tải Header trước ---
-            _, msg_header = mail.fetch(latest_id, '(BODY.PEEK[HEADER])')
-            header_content = email.message_from_bytes(msg_header[0][1])
-            subject = _decode_str(header_content.get("Subject", "")).lower()
-
-            # Kiểm tra Subject nhanh
-            if any(k.lower() in subject for k in subject_keywords):
-                # Khớp subject mới tải toàn bộ Body
-                _, msg_data = mail.fetch(latest_id, "(RFC822)")
-                full_msg = email.message_from_bytes(msg_data[0][1])
-                
-                body = ""
-                if full_msg.is_multipart():
-                    for part in full_msg.walk():
-                        if part.get_content_type() == "text/plain":
-                            body += part.get_payload(decode=True).decode('utf-8', errors='ignore')
-                            break
+        # Tìm mail CHƯA ĐỌC từ Instagram, sắp xếp theo ARRIVAL giảm dần (mới nhất trước)
+        try:
+            # Thử dùng SORT nếu server hỗ trợ
+            status, messages = mail.sort('(REVERSE ARRIVAL)', 'UTF-8', '(UNSEEN FROM "Instagram")')
+            if status == "OK" and messages[0]:
+                mail_ids = messages[0].split()
+            else:
+                # Fallback to UID search
+                status, messages = mail.uid('search', None, '(UNSEEN FROM "Instagram")')
+                if status == "OK" and messages[0]:
+                    mail_ids = messages[0].split()
+                    # Sắp xếp giảm dần (mới nhất trước, UID cao hơn)
+                    mail_ids.sort(key=int, reverse=True)
                 else:
-                    body = full_msg.get_payload(decode=True).decode('utf-8', errors='ignore')
-                
-                body_lower = body.lower()
-
-                # Kiểm tra Username (Đảm bảo mail đúng cho tài khoản đang check)
-                if target_username and target_username.lower() not in body_lower:
-                    print(f"   [IMAP] Mismatch username in mail {latest_id}. Marking Seen.")
-                    mail.store(latest_id, '+FLAGS', '\\Seen')
                     return None
+        except:
+            # Fallback to standard search
+            status, messages = mail.search(None, '(UNSEEN FROM "Instagram")')
+            if status == "OK" and messages[0]:
+                mail_ids = messages[0].split()
+            else:
+                return None
+        
+        if not mail_ids:
+            return None
+        
+        # Ưu tiên mail mới nhất (đầu tiên trong list đã sắp xếp)
+        latest_id = mail_ids[0]
+        
+        # --- TỐI ƯU: Chỉ tải Header trước ---
+        try:
+            _, msg_header = mail.uid('fetch', latest_id, '(BODY.PEEK[HEADER])')
+        except:
+            # Fallback to fetch
+            _, msg_header = mail.fetch(latest_id, '(BODY.PEEK[HEADER])')
+        
+        header_content = email.message_from_bytes(msg_header[0][1])
+        subject = _decode_str(header_content.get("Subject", "")).lower()
+        message_id = header_content.get("Message-ID", "")
 
-                # Extract Code (6-8 số)
-                m = re.search(r'\b(\d{6,8})\b', body)
-                if m:
-                    code = m.group(1)
-                    # Đánh dấu đã đọc thành công
+        # Kiểm tra Subject nhanh
+        if any(k.lower() in subject for k in subject_keywords):
+            # Khớp subject mới tải toàn bộ Body
+            try:
+                _, msg_data = mail.uid('fetch', latest_id, "(RFC822)")
+            except:
+                _, msg_data = mail.fetch(latest_id, "(RFC822)")
+            
+            full_msg = email.message_from_bytes(msg_data[0][1])
+            
+            body = ""
+            if full_msg.is_multipart():
+                for part in full_msg.walk():
+                    if part.get_content_type() == "text/plain":
+                        body += part.get_payload(decode=True).decode('utf-8', errors='ignore')
+                        break
+            else:
+                body = full_msg.get_payload(decode=True).decode('utf-8', errors='ignore')
+            
+            body_lower = body.lower()
+
+            # Kiểm tra Username (Đảm bảo mail đúng cho tài khoản đang check)
+            if target_username and target_username.lower() not in body_lower:
+                print(f"   [IMAP] Mismatch username in mail {latest_id}. Marking Seen.")
+                try:
+                    mail.uid('store', latest_id, '+FLAGS', '\\Seen')
+                except:
                     mail.store(latest_id, '+FLAGS', '\\Seen')
-                    return code
+                return None
+
+            # Extract Code (6-8 số)
+            m = re.search(r'\b(\d{6,8})\b', body)
+            if m:
+                code = m.group(1)
+                # Đánh dấu đã đọc thành công
+                try:
+                    mail.uid('store', latest_id, '+FLAGS', '\\Seen')
+                except:
+                    mail.store(latest_id, '+FLAGS', '\\Seen')
+                return code
                     
     except Exception as e:
         err_str = str(e).lower()

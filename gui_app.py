@@ -329,7 +329,7 @@ class AutomationGUI:
             vals = self.tree.item(i)['values']
             if vals[-1] == "Pending":
                 twofa_val = str(vals[4]).strip()
-                if twofa_val == "":
+                if twofa_val == "" or "ERROR_2FA" in twofa_val:
                     pending_items.append(i)
                 else:
                     # Nếu 2FA đã có, đánh dấu success luôn

@@ -54,17 +54,28 @@ class InstagramLoginStep:
 
         # --- GIAI ĐOẠN 1: CHỌN "USE ANOTHER PROFILE" ---
         input_check_css = "input[name='username'], input[name='email'], input[type='text']"
-        start_time = time.time()
-        # Max 30s for input to appear
-        while time.time() - start_time < 30:
-            if wait_element(self.driver, By.CSS_SELECTOR, input_check_css, timeout=3):
-                break
-            print("   [Step 1] Inputs not ready. Checking for 'Use another profile'...")
-            xpath_switch = "//*[contains(text(), 'Use another profile') or contains(text(), 'Switch accounts')]"
-            if wait_and_click(self.driver, By.XPATH, xpath_switch, timeout=3):
-                print("   [Step 1] Clicked 'Switch'. Waiting for inputs...")
-        else:
-            return "FAIL_INPUT_TIMEOUT"
+        attempts = 0
+        max_attempts = 2
+        timeout = 30
+        while attempts < max_attempts:
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if wait_element(self.driver, By.CSS_SELECTOR, input_check_css, timeout=3):
+                    break
+                print("   [Step 1] Inputs not ready. Checking for 'Use another profile'...")
+                xpath_switch = "//*[contains(text(), 'Use another profile') or contains(text(), 'Switch accounts') or contains(text(), 'Use another account')]"
+                if wait_and_click(self.driver, By.XPATH, xpath_switch, timeout=3):
+                    print("   [Step 1] Clicked 'Switch'. Waiting for inputs...")
+            else:
+                if attempts < max_attempts - 1:
+                    print("   [Step 1] Refreshing page to retry finding inputs...")
+                    self.driver.refresh()
+                    wait_dom_ready(self.driver, timeout=10)
+                    attempts += 1
+                    continue
+                else:
+                    return "FAIL_INPUT_TIMEOUT"
+            break
 
         # --- GIAI ĐOẠN 2: NHẬP USER (TỐI ƯU TỐC ĐỘ) ---
         print("   [Step 1] Entering Username...")
@@ -119,8 +130,11 @@ class InstagramLoginStep:
         else:
             return "FAIL_LOGIN_BUTTON_TIMEOUT"
 
-        # --- GIAI ĐOẠN 5: CHỜ KẾT QUẢ ---
-        return self._wait_for_login_result(timeout=60)
+        status = self._wait_for_login_result(timeout=120)
+        wait_dom_ready(self.driver , timeout=10)
+        time.sleep(2)
+        print(f"   [Step 1] Login result detected: {status}")
+        return status
 
     # def _wait_for_login_result(self, timeout=120):
     #     """
@@ -332,7 +346,7 @@ class InstagramLoginStep:
 
                     # Nếu có loading hoặc url không đổi thì tiếp tục chờ
                     if loading_found or current_url == last_url:
-                        if time.time() - start_time > 60:
+                        if time.time() - start_time > 120:
                             break
                         time.sleep(1)
                         last_url = current_url

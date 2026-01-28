@@ -15,6 +15,42 @@ class Instagram2FAStep:
         self.driver = driver
         self.target_url = "https://accountscenter.instagram.com/password_and_security/two_factor/"
 
+    def _safe_element_action(self, action_func, max_retries=3, delay=0.5):
+        """
+        Helper to perform element actions with retry on StaleElementReferenceException.
+        Ensures stability by re-locating elements if they become stale.
+        """
+        from selenium.common.exceptions import StaleElementReferenceException
+        for attempt in range(max_retries):
+            try:
+                return action_func()
+            except StaleElementReferenceException:
+                if attempt < max_retries - 1:
+                    print(f"   [Step 4] Element stale, retrying ({attempt+1}/{max_retries})...")
+                    time.sleep(delay)
+                else:
+                    raise
+        return False
+
+    def _find_code_input(self):
+        """
+        Helper to find the code input element using JS.
+        """
+        return self.driver.execute_script("""
+            var inputs = document.querySelectorAll('input');
+            for (var inp of inputs) {
+                if (inp.offsetParent !== null) {
+                    var name = inp.name.toLowerCase();
+                    var placeholder = inp.placeholder ? inp.placeholder.toLowerCase() : '';
+                    var id = inp.id ? inp.id.toLowerCase() : '';
+                    if (name === 'code' || placeholder.includes('code') || inp.type === 'tel' || inp.maxLength == 6 || id.startsWith('_r_') || (inp.type === 'text' && inp.autocomplete === 'off')) {
+                        return inp;
+                    }
+                }
+            }
+            return null;
+        """)
+
     def setup_2fa(self, gmx_user, gmx_pass, target_username, linked_mail=None):
         """
         Setup 2FA Flow - Logic gốc bảo toàn, thêm tối ưu chống treo.
@@ -116,6 +152,12 @@ class Instagram2FAStep:
             
             print(f"\n========================================\n[Step 4] !!! SECRET KEY FOUND: {secret_key_grouped}\n========================================\n")
 
+            # Tính toán OTP ngay sau khi có secret key để tiết kiệm thời gian
+            key_for_otp = secret_key.replace(" ","")
+            totp = pyotp.TOTP(key_for_otp, interval=30)
+            otp_code = totp.now()
+            print(f"   [Step 4] Pre-generated OTP Code: {otp_code}")
+
             # Callback GUI
             if hasattr(self, 'on_secret_key_found') and callable(self.on_secret_key_found):
                 try: self.on_secret_key_found(secret_key_grouped)
@@ -127,35 +169,30 @@ class Instagram2FAStep:
             print("   [Step 4] Clicking Next to Input OTP...")
             self._click_continue_robust()
             
-            # Đảm bảo chắc chắn sang màn hình nhập OTP
-            wait_end = time.time() + 10
+            # Đảm bảo chắc chắn sang màn hình nhập OTP (giảm timeout xuống 5s, poll 0.5s)
+            wait_end = time.time() + 5
             while time.time() < wait_end:
                 if self._get_page_state() == 'OTP_INPUT_SCREEN':
                     print("   [Step 4] Confirmed: On OTP Input Screen.")
                     break
-                time.sleep(1)
+                time.sleep(0.5)
             else:
                 print("   [Step 4] Warning: Not on OTP input screen yet, proceeding anyway.")
             
-            # Tính toán OTP từ secret key
-            key_for_otp = secret_key.replace(" ","")
-            totp = pyotp.TOTP(key_for_otp, interval=30)
-            otp_code = totp.now()
-
-            print(f"   [Step 4] Generated OTP Code: {otp_code}")
+            print(f"   [Step 4] Using OTP Code: {otp_code}")
             
             is_filled = False
-            fill_end = time.time() + 10 
+            fill_end = time.time() + 5  # Giảm timeout xuống 5s
             while time.time() < fill_end:
                 if self._robust_fill_input(otp_code):
                     is_filled = True; break
                 print("   [Step 4] Retrying input fill...")
-                time.sleep(1)
+                time.sleep(0.5)  # Poll nhanh hơn
                 
             if not is_filled: raise Exception("STOP_FLOW_2FA: OTP_INPUT_FAIL")
             
             print(f"   [Step 4] OTP Input Filled. Confirming...")
-            time.sleep(0.5)
+            time.sleep(0.3)  # Giảm wait xuống 0.3s
             self._click_continue_robust()
             
             # -------------------------------------------------
@@ -536,33 +573,25 @@ class Instagram2FAStep:
 
     def _robust_fill_input(self, text_value):
         val = str(text_value).strip()
-        try:
-            # Tìm input bằng JS
-            input_el = self.driver.execute_script("""
-                var inputs = document.querySelectorAll('input');
-                for (var inp of inputs) {
-                    if (inp.offsetParent !== null) {
-                        var name = inp.name.toLowerCase();
-                        var placeholder = inp.placeholder ? inp.placeholder.toLowerCase() : '';
-                        var id = inp.id ? inp.id.toLowerCase() : '';
-                        if (name === 'code' || placeholder.includes('code') || inp.type === 'tel' || inp.maxLength == 6 || id.startsWith('_r_') || (inp.type === 'text' && inp.autocomplete === 'off')) {
-                            return inp;
-                        }
-                    }
-                }
-                return null;
-            """)
+        
+        def fill_action():
+            input_el = self._find_code_input()
             if not input_el:
                 return False
             
             # Nhập từng ký tự với delay để mô phỏng nhập thật
             ActionChains(self.driver).move_to_element(input_el).click().perform()
-            input_el.clear()
+            # Đảm bảo xóa code cũ: select all và delete
+            ActionChains(self.driver).key_down(Keys.CONTROL).send_keys('a').key_up(Keys.CONTROL).send_keys(Keys.DELETE).perform()
+            input_el.clear()  # Thêm clear() để đảm bảo
             for char in val:
                 input_el.send_keys(char)
-                time.sleep(0.1)  # Delay 0.1s giữa mỗi ký tự
-            time.sleep(0.5)  # Chờ sau khi nhập xong
+                time.sleep(0.05)  # Giảm delay xuống 0.05s để nhập nhanh hơn
+            time.sleep(0.3)  # Giảm wait xuống 0.3s
             return input_el.get_attribute("value").replace(" ", "") == val
+        
+        try:
+            return self._safe_element_action(fill_action)
         except Exception as e:
-            print(f"   [Step 4] Input fill failed: {e}")
+            print(f"   [Step 4] Input fill failed after retries: {e}")
             return False
