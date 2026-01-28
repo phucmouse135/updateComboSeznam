@@ -113,8 +113,20 @@ class InstagramExceptionStep:
                 print("   [Step 2] Could not find Next button after password change (all selectors tried).")
             if time.time() - start_time > TIMEOUT:
                 raise Exception("TIMEOUT_REQUIRE_PASSWORD_CHANGE: End")
-            time.sleep(4)
-            wait_dom_ready(self.driver)
+            
+            # Sau khi nhấn Next, chờ 2 giây và kiểm tra crash
+            time.sleep(2)
+            try:
+                # Kiểm tra driver còn sống
+                current_url = self.driver.current_url
+                print(f"   [Step 2] Post-Next URL: {current_url}")
+                wait_dom_ready(self.driver, timeout=10)
+            except Exception as crash_e:
+                print(f"   [Step 2] Crash detected after Next click: {crash_e}. Reloading to instagram.com...")
+                self.driver.get("https://www.instagram.com/")
+                wait_dom_ready(self.driver, timeout=20)
+                time.sleep(2)
+                return  # Hoặc raise tùy logic
         except Exception as e:
             print(f"   [Step 2] Error handling require password change: {e}")
     def handle_status(self, status, ig_username, gmx_user, gmx_pass, linked_mail=None, ig_password=None, depth=0):
@@ -142,7 +154,19 @@ class InstagramExceptionStep:
             wait_dom_ready(self.driver, timeout=20)
             new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
-            
+        
+        # SUBSCRIBE_OR_CONTINUE
+        if status == "SUBSCRIBE_OR_CONTINUE":
+            print("   [Step 2] Handling Subscribe Or Continue...")
+            # se co 2 radio button: => chon cai thu 2 (use for free with ads)
+            wait_and_click(self.driver, By.XPATH, "(//input[@type='radio'])[2]", timeout=20)
+            time.sleep(1)
+            wait_and_click(self.driver, By.XPATH, "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]", timeout=20)
+            time.sleep(3)
+            wait_dom_ready(self.driver, timeout=20)
+            new_status = self._check_verification_result()
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+                
         
         if status == "RETRY_UNUSUAL_LOGIN":
             print("   [Step 2] Detected 'Sorry, there was a problem. Please try again.' Retrying Unusual Login...")
@@ -271,11 +295,9 @@ class InstagramExceptionStep:
                 # Cập nhật lại password mới lên GUI NGAY LẬP TỨC trước khi gọi các bước tiếp theo
                 if hasattr(self, "on_password_changed") and callable(self.on_password_changed):
                     self.on_password_changed(ig_username, new_pass)
-                time.sleep(2)
+                time.sleep(4)
                 wait_dom_ready(self.driver, timeout=20)
                 
-                # reload instagram.com 
-                self.driver.get("https://www.instagram.com/")
                 
                 # Đảm bảo các bước sau luôn dùng mật khẩu mới
                 ig_password = new_pass
@@ -283,11 +305,7 @@ class InstagramExceptionStep:
                 print(f"   [Step 2] Status after Password Change: {new_status}")
                 # Anti-hang: If status unchanged, refresh to avoid loop
                 if new_status == status:
-                    print(f"   [Step 2] Status unchanged after handling {status}, refreshing to avoid hang...")
-                    self.driver.refresh()
-                    wait_dom_ready(self.driver, timeout=20)
-                    time.sleep(2)
-                    new_status = self._check_verification_result()
+                    self.driver.get("https://www.instagram.com/")
                 return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             else:
                 raise Exception("STOP_FLOW_REQUIRE_PASSWORD_CHANGE: No password provided")
@@ -926,6 +944,10 @@ class InstagramExceptionStep:
                 # use another profile va log into instagram => dang nhap lai voi data moi 
                 if self.driver.execute_script("return /log into another account|use another profile/.test(document.body.innerText.toLowerCase())"):
                     return "RETRY_UNUSUAL_LOGIN"
+                
+                # Want to subscribe or continue
+                if self.driver.execute_script("return /subscribe|continue/.test(document.body.innerText.toLowerCase())"):
+                    return "SUBSCRIBE_OR_CONTINUE"
                 
                 consecutive_failures = 0  # Reset on successful check
             except Exception as e:
