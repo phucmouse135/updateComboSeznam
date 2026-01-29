@@ -889,12 +889,12 @@ class InstagramExceptionStep:
                         continue
                     else:
                         raise
-            if check_result in ["CHECKPOINT_MAIL", "WRONG_CODE"]:
+            if check_result in ["CHECKPOINT_MAIL", "WRONG_CODE", "TIMEOUT"]:
                 if attempt < max_retries:
-                    print("   [Step 2] Code rejected or wrong, will retry if attempts remain...")
+                    print("   [Step 2] Code verification failed (wrong/rejected/timeout), retrying mail...")
                     continue
                 else:
-                    return "WRONG_CODE"
+                    raise Exception("STOP_FLOW_CHECKPOINT_MAIL_EXHAUSTED: Max mail attempts reached")
             return check_result
 
     def _handle_change_password(self, old_password):
