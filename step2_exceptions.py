@@ -705,7 +705,7 @@ class InstagramExceptionStep:
     def _solve_email_checkpoint(self, ig_username, gmx_user, gmx_pass, linked_mail=None, ig_password=None, depth=0):
         # Timeout protection for email checkpoint (max 60s)
         start_time = time.time()
-        TIMEOUT = 60
+        TIMEOUT = 70
         print(f"   [Step 2] Detected Email Checkpoint...")
         
         # --- GIAI ĐOẠN 0: RADIO BUTTON ---
@@ -739,13 +739,11 @@ class InstagramExceptionStep:
         # Sử dụng _check_mail_flow để đồng bộ logic chống lặp vô hạn
         def get_code():
             try:
-                code = get_verify_code_v2(gmx_user, gmx_pass, ig_username)
-                return code
+                # Truyền thêm tham số linked_mail vào đây
+                return get_verify_code_v2(gmx_user, gmx_pass, ig_username, target_email=linked_mail)
             except Exception as e:
-                print(f"   [Step 2] Error getting code: {e}")
-                if "GMX_LOGIN_FAIL" in str(e):
-                    raise Exception("GMX_DIE")
-                raise Exception("GMX_DIE")
+                if "GMX_DIE" in str(e): raise e
+                return None
         def input_code(code):
             code_input = None
             # Fast JS check for common code inputs
@@ -796,26 +794,32 @@ class InstagramExceptionStep:
             if code_input:
                 try:
                     print(f"   [Step 2] Attempting to input code {code}...")
-                    # First try to click and focus
+                    # Wait for loading overlay to disappear
+                    WebDriverWait(self.driver, 10).until(
+                        lambda d: len(d.find_elements(By.CSS_SELECTOR, "div._acun")) == 0
+                    )
+                    
+                    # Try real input: click and send_keys
                     code_input.click()
-                    time.sleep(0.2)
-                    # Clear existing value
-                    code_input.send_keys(Keys.CONTROL + "a")
-                    code_input.send_keys(Keys.DELETE)
-                    time.sleep(0.1)
-                    # Input the code
+                    time.sleep(2)
+                    code_input.clear()
                     code_input.send_keys(code)
-                    time.sleep(0.5)
-                    # Check if value was set
+                    time.sleep(1)
                     current_value = code_input.get_attribute('value')
                     print(f"   [Step 2] Input field value after send_keys: '{current_value}'")
                     if current_value != code:
-                        print("   [Step 2] send_keys failed, trying JS...")
-                        # Fallback to JS
-                        self.driver.execute_script("arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", code_input, code)
-                        time.sleep(0.2)
+                        print("   [Step 2] send_keys failed, trying again...")
+                        code_input.send_keys(Keys.CONTROL + "a")
+                        code_input.send_keys(Keys.DELETE)
+                        time.sleep(2)
+                        code_input.send_keys(code)
+                        time.sleep(1)
                         current_value = code_input.get_attribute('value')
-                        print(f"   [Step 2] Input field value after JS: '{current_value}'")
+                        print(f"   [Step 2] Input field value after retry: '{current_value}'")
+                        if current_value != code:
+                            print("   [Step 2] send_keys failed again.")
+                    else:
+                        print("   [Step 2] send_keys successful.")
                     # Send Enter
                     code_input.send_keys(Keys.ENTER)
                     time.sleep(1)
@@ -832,14 +836,14 @@ class InstagramExceptionStep:
                         print(f"   [Step 2] JS fallback failed: {e2}")
             else:
                 raise Exception("STOP_FLOW_CHECKPOINT: Cannot find code input")
-        check_result = self._check_mail_flow(get_code, input_code, max_retries=5, timeout=TIMEOUT)
+        check_result = self._check_mail_flow(get_code, input_code, max_retries=3, timeout=TIMEOUT)
         print(f"   [Step 2] Email Checkpoint code verification result: {check_result}")
         return self.handle_status(check_result, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
     # ==========================================
     # 5. LOGIC CHECK MAIL (REUSE, ANTI-INFINITE LOOP)
     # ==========================================
-    def _check_mail_flow(self, get_code_func, input_code_func, max_retries=5, timeout=60):
+    def _check_mail_flow(self, get_code_func, input_code_func, max_retries=3, timeout=60):
         """
         Chuẩn hóa logic check mail: lấy code, nhập code, kiểm tra kết quả, chống lặp vô hạn.
         get_code_func: hàm lấy code (lambda)
@@ -848,7 +852,7 @@ class InstagramExceptionStep:
         start_time = time.time()
         for attempt in range(1, max_retries + 1):
             if time.time() - start_time > timeout:
-                raise Exception("TIMEOUT_CHECK_MAIL_FLOW: Code input loop")
+                raise Exception("CHECK_MAIL: No code ")
             print(f"   [Step 2] >>> Code Attempt {attempt}/{max_retries} <<<")
             if attempt > 1:
                 # Có thể bổ sung logic gửi lại mã nếu cần
@@ -891,6 +895,15 @@ class InstagramExceptionStep:
                         raise
             if check_result in ["CHECKPOINT_MAIL", "WRONG_CODE", "TIMEOUT"]:
                 if attempt < max_retries:
+                    if check_result == "WRONG_CODE":
+                        # Click "Get a new one" link to request new code
+                        try:
+                            get_new_link = self.driver.find_element(By.XPATH, "//a[contains(text(), 'Get a new one') or contains(@href, '_replay')]")
+                            get_new_link.click()
+                            print("   [Step 2] Clicked 'Get a new one' to request new code.")
+                            time.sleep(2)  # Wait for new code to be sent
+                        except Exception as e:
+                            print(f"   [Step 2] Could not find or click 'Get a new one' link: {e}")
                     print("   [Step 2] Code verification failed (wrong/rejected/timeout), retrying mail...")
                     continue
                 else:
@@ -968,7 +981,7 @@ class InstagramExceptionStep:
     def _check_verification_result(self):
         # Timeout protection for verification result (max 60s)
         # Optimized with JS checks to avoid hangs and speed up detection
-        TIMEOUT = 60
+        TIMEOUT = 20
         end_time = time.time() + TIMEOUT
         consecutive_failures = 0
         max_consecutive_failures = 20  # If JS fails 20 times in a row, consider timeout

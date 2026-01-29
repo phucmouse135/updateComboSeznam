@@ -522,7 +522,12 @@ class AutomationGUI:
     def clear_all_data(self, confirm=True):
         if confirm and not messagebox.askyesno("Confirm", "Clear ALL data?"): return
         for item in self.tree.get_children(): self.tree.delete(item)
+        # Reset all stats when clearing data
+        self.success_count = 0
+        self.processed_count = 0
+        self.fail_count = 0
         self.update_stats()
+        self.update_stats_label()
 
     def update_stats(self):
         items = self.tree.get_children()

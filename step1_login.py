@@ -223,8 +223,18 @@ class InstagramLoginStep:
                 wait_dom_ready(self.driver, timeout=10)
                 start_time = time.time()
                 last_url = self.driver.current_url
+                retry_count = 0
                 while True:
-                    body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+                    try:
+                        body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+                    except Exception as e:
+                        if "stale" in str(e).lower() and retry_count < 3:
+                            print("   [Step 1] Stale element when getting body text, retrying...")
+                            time.sleep(1)
+                            retry_count += 1
+                            continue
+                        else:
+                            return f"ERROR_DETECT: {str(e)}"
                     current_url = self.driver.current_url
 
                     # you need to request help logging in To secure your account, you need to request help logging in
