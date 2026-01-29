@@ -2,11 +2,14 @@
 import time
 import re
 import random
+import os
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import Select
 # Import ActionChains for advanced interactions
 from selenium.webdriver import ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # Import các hàm utils
 from config_utils import wait_element, wait_and_send_keys, wait_dom_ready, wait_and_click
@@ -74,9 +77,9 @@ class InstagramExceptionStep:
     # 2. MAIN ROUTING (HANDLE STATUS)
     # ==========================================
     def _handle_require_password_change(self, new_password):
-        # Timeout protection for password change (max 120s)
+        # Timeout protection for password change (max 60s)
         start_time = time.time()
-        TIMEOUT = 120
+        TIMEOUT = 60
         print(f"   [Step 2] Handling Require Password Change (New password: {new_password})...")
         try:
             # Tìm chính xác 2 input theo id
@@ -115,16 +118,16 @@ class InstagramExceptionStep:
                 raise Exception("TIMEOUT_REQUIRE_PASSWORD_CHANGE: End")
             
             # Sau khi nhấn Next, chờ 2 giây và kiểm tra crash
-            time.sleep(2)
+            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             try:
                 # Kiểm tra driver còn sống
                 current_url = self.driver.current_url
                 print(f"   [Step 2] Post-Next URL: {current_url}")
-                wait_dom_ready(self.driver, timeout=10)
+                WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             except Exception as crash_e:
                 print(f"   [Step 2] Crash detected after Next click: {crash_e}. Reloading to instagram.com...")
                 self.driver.get("https://www.instagram.com/")
-                wait_dom_ready(self.driver, timeout=20)
+                WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
                 time.sleep(2)
                 return  # Hoặc raise tùy logic
         except Exception as e:
@@ -150,8 +153,7 @@ class InstagramExceptionStep:
             # reload instagram to trigger birthday screen
             print("   [Step 2] Handling Real Birthday Required - Reloading Instagram...")
             self.driver.get("https://www.instagram.com/")
-            time.sleep(2)
-            wait_dom_ready(self.driver, timeout=20)
+            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
@@ -162,8 +164,7 @@ class InstagramExceptionStep:
             wait_and_click(self.driver, By.XPATH, "(//input[@type='radio'])[2]", timeout=20)
             time.sleep(1)
             wait_and_click(self.driver, By.XPATH, "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]", timeout=20)
-            time.sleep(3)
-            wait_dom_ready(self.driver, timeout=20)
+            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
                 
@@ -177,7 +178,7 @@ class InstagramExceptionStep:
             print("   [Step 2] Handling Checkpoint Phone...")
             # click button back to return CONTINUE_UNUSUAL_LOGIN
             back_clicked = wait_and_click(self.driver, By.XPATH, "//button[contains(text(), 'Back') or contains(text(), 'Quay lại')]", timeout=20)
-            time.sleep(3)
+            wait_dom_ready(self.driver, timeout=10)
             if back_clicked:
                 return self.handle_status("CONTINUE_UNUSUAL_LOGIN", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             
@@ -199,23 +200,29 @@ class InstagramExceptionStep:
             except Exception as e:
                 print(f"   [Step 2] Error clicking continue: {e}")
             
-            time.sleep(2)
-            wait_dom_ready(self.driver, timeout=20)
+            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             
         # RETRY_UNSUAL_LOGIN
         if status == "RETRY_UNUSUAL_LOGIN":
             # call step 1 to login again with new data 
+            print("   [Step 2] Handling Retry Unusual Login...")
             isLogin = step1_login.perform_login(self, ig_username, ig_password)
+            wait_dom_ready(self.driver, timeout=20)
+            if isLogin:
+                return self.handle_status("LOGGED_IN_SUCCESS", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+            else:
+                return  self.handle_status("UNUSUAL_LOGIN", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+            
         
         # if status == "REQUIRE_PASSWORD_CHANGE":
         #     print("   [Step 2] Password too short, retrying change password...")
         #     return self.handle_status("REQUIRE_PASSWORD_CHANGE", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         if status == "CONTINUE_UNUSUAL_LOGIN":
-            # Timeout protection for unusual login (max 30s)
+            # Timeout protection for unusual login (max 60s)
             start_time = time.time()
-            TIMEOUT = 120
+            TIMEOUT = 60
             print("   [Step 2] Handling Unusual Login (Clicking Continue/This Was Me)...")
             time.sleep(2) # Chờ load UI
             try:
@@ -308,7 +315,7 @@ class InstagramExceptionStep:
         if status == "REQUIRE_PASSWORD_CHANGE":
             # Timeout protection for password change (max 60s)
             start_time = time.time()
-            TIMEOUT = 180
+            TIMEOUT = 60
             print("   [Step 2] Handling Require Password Change...")
             if ig_password :
                 new_pass = ig_password + "@"
@@ -398,7 +405,7 @@ class InstagramExceptionStep:
         if status == "CHECKPOINT_MAIL":
             # Timeout protection for email checkpoint (max 60s)
             start_time = time.time()
-            TIMEOUT = 120
+            TIMEOUT = 60
             print("   [Step 2] Handling Email Checkpoint...")
             result = self._solve_email_checkpoint(ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth)
             if time.time() - start_time > TIMEOUT:
@@ -410,8 +417,7 @@ class InstagramExceptionStep:
             # refresh page to try again
             print("   [Step 2] Login Failed Something Went Wrong detected. Refreshing page to retry...")
             self.driver.get("https://www.instagram.com/")
-            time.sleep(2)
-            wait_dom_ready(self.driver, timeout=20)
+            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
@@ -420,8 +426,7 @@ class InstagramExceptionStep:
             print("   [Step 2] Something went wrong detected. Refreshing page to retry...")
             # truy cap instagram.com
             self.driver.get("https://www.instagram.com/")
-            time.sleep(2)
-            wait_dom_ready(self.driver, timeout=20)
+            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
@@ -457,7 +462,6 @@ class InstagramExceptionStep:
                     print(f"   [Step 2] Status unchanged after handling {status}, refreshing to avoid hang...")
                     self.driver.refresh()
                     wait_dom_ready(self.driver, timeout=20)
-                    time.sleep(2)
                     new_status = self._check_verification_result()
                 # de quy kiem tra lai trang thai
                 return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
@@ -471,15 +475,23 @@ class InstagramExceptionStep:
             new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
+        # Capture screenshot for unknown status
+        timestamp = int(time.time())
+        screenshot_dir = "screenshots"
+        os.makedirs(screenshot_dir, exist_ok=True)
+        screenshot_path = os.path.join(screenshot_dir, f"unknown_status_{status}_{timestamp}.png")
+        self.driver.save_screenshot(screenshot_path)
+        print(f"   [Step 2] Screenshot saved for unknown status '{status}': {screenshot_path}")
+
         raise Exception(f"STOP_FLOW_UNKNOWN_STATUS: {status}")
 
     # ==========================================
     # 3. LOGIC XỬ LÝ BIRTHDAY (STRICT VERIFY YEAR)
     # ==========================================
     def _handle_birthday_screen(self):
-        # Timeout protection for birthday screen (max 120s)
+        # Timeout protection for birthday screen (max 60s)
         start_time = time.time()
-        TIMEOUT = 120
+        TIMEOUT = 60
         print("   [Step 2] Handling Birthday Screen...")
         # Check for "Enter your real birthday" text and reload if found
         try:
@@ -487,8 +499,7 @@ class InstagramExceptionStep:
             if "enter your real birthday" in body_text or "nhập ngày sinh thật của bạn" in body_text:
                 print("   [Step 2] Detected 'Enter your real birthday' - Reloading Instagram...")
                 self.driver.get("https://www.instagram.com/")
-                time.sleep(2)
-                wait_dom_ready(self.driver, timeout=20)
+                WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
                 return "LOGGED_IN_SUCCESS"
         except Exception as e:
             print(f"   [Step 2] Warning checking for real birthday text: {e}")
@@ -662,7 +673,7 @@ class InstagramExceptionStep:
                 else:
                     print("   [Step 2] Skipping Next because Year was not confirmed.")
 
-            wait_dom_ready(self.driver, timeout=20)
+            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             if time.time() - start_time > TIMEOUT:
                 raise Exception("TIMEOUT_BIRTHDAY_SCREEN: End")
             return "LOGGED_IN_SUCCESS"
@@ -692,9 +703,9 @@ class InstagramExceptionStep:
         return False
 
     def _solve_email_checkpoint(self, ig_username, gmx_user, gmx_pass, linked_mail=None, ig_password=None, depth=0):
-        # Timeout protection for email checkpoint (max 120s)
+        # Timeout protection for email checkpoint (max 60s)
         start_time = time.time()
-        TIMEOUT = 150
+        TIMEOUT = 60
         print(f"   [Step 2] Detected Email Checkpoint...")
         
         # --- GIAI ĐOẠN 0: RADIO BUTTON ---
@@ -828,7 +839,7 @@ class InstagramExceptionStep:
     # ==========================================
     # 5. LOGIC CHECK MAIL (REUSE, ANTI-INFINITE LOOP)
     # ==========================================
-    def _check_mail_flow(self, get_code_func, input_code_func, max_retries=5, timeout=120):
+    def _check_mail_flow(self, get_code_func, input_code_func, max_retries=5, timeout=60):
         """
         Chuẩn hóa logic check mail: lấy code, nhập code, kiểm tra kết quả, chống lặp vô hạn.
         get_code_func: hàm lấy code (lambda)
@@ -850,7 +861,7 @@ class InstagramExceptionStep:
             if not code:
                 if attempt < max_retries:
                     print("   [Step 2] No code found via mail. Retrying...")
-                    time.sleep(3)  # Reduced from 2s to 1s for faster retry
+                    time.sleep(2)  # Reduced from 3s to 2s for faster retry
                     continue
                 else:
                     raise Exception("STOP_FLOW_CHECK_MAIL: No code found in mail")
@@ -862,8 +873,8 @@ class InstagramExceptionStep:
                 print("   [Step 2] Waiting for UI to update after code input...")
                 wait_and_click(self.driver, By.CSS_SELECTOR, "button[type='submit']", timeout=20)
                 # Tăng thời gian chờ sau khi nhấn submit để tránh check mail quá sớm khi UI còn đang xử lý
-                wait_dom_ready(self.driver, timeout=120)
-                time.sleep(2)  # Reduced sleep to 2s
+                WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+                time.sleep(1)  # Reduced sleep to 1s
                 print("   [Step 2] Verifying code...")
                 check_result = self._check_verification_result()
                 print(f"   [Step 2] Result: {check_result}")
@@ -887,9 +898,9 @@ class InstagramExceptionStep:
             return check_result
 
     def _handle_change_password(self, old_password):
-        # Timeout protection for change password (max 120s)
+        # Timeout protection for change password (max 60s)
         start_time = time.time()
-        TIMEOUT = 120
+        TIMEOUT = 60
         print(f"   [Step 2] Handling Password Change (Re-using old password)...")
         
         try:
@@ -945,7 +956,7 @@ class InstagramExceptionStep:
             
             # 5. Wait for finish (increased from 2s to 5s to allow page transition)
             time.sleep(5) 
-            wait_dom_ready(self.driver, timeout=120)
+            WebDriverWait(self.driver, 30).until(lambda d: d.execute_script("return document.readyState") == "complete")
             
             if time.time() - start_time > TIMEOUT:
                 raise Exception("TIMEOUT_CHANGE_PASSWORD: End process exceeded time")
@@ -955,20 +966,30 @@ class InstagramExceptionStep:
             # Có thể thêm logic retry lại hàm này 1 lần nữa nếu cần thiết ở tầng gọi hàm
 
     def _check_verification_result(self):
-        # Timeout protection for verification result (max 120s)
+        # Timeout protection for verification result (max 30s)
         # Optimized with JS checks to avoid hangs and speed up detection
-        TIMEOUT = 120
+        TIMEOUT = 30
         end_time = time.time() + TIMEOUT
         consecutive_failures = 0
-        max_consecutive_failures = 10  # If JS fails 10 times in a row, consider timeout
+        max_consecutive_failures = 20  # If JS fails 20 times in a row, consider timeout
+        try:
+            WebDriverWait(self.driver, 5).until(lambda d: d.execute_script("return document.readyState") == "complete")
+        except Exception as e:
+            print(f"   [Step 2] Page not ready after 5s: {e}")
         while time.time() < end_time:
             try:
+                
+                
                 #  Check your email or This email will replace all existing contact and login info on your account
                 if self.driver.execute_script("return /check your email|this email will replace all existing contact and login info on your account/.test(document.body.innerText.toLowerCase())"):
                     return "CHECKPOINT_MAIL"
                 
                 if self.driver.execute_script("return /change password|new password|create a strong password|change your password to secure your account/.test(document.body.innerText.toLowerCase())"):
-                    return "CHANGE_PASSWORD"
+                    # nếu có new confirm new password thì require change password
+                    if len(self.driver.execute_script("return Array.from(document.querySelectorAll('input[type=\"password\"]'));")) >= 2:
+                        return "REQUIRE_PASSWORD_CHANGE"
+                    else:
+                        return "CHANGE_PASSWORD"
                 
                 if self.driver.execute_script("return /add phone number|send confirmation|log into another account/.test(document.body.innerText.toLowerCase())"):
                     return "SUSPENDED_PHONE"
@@ -999,6 +1020,10 @@ class InstagramExceptionStep:
                 if self.driver.execute_script("return /enter your real birthday|nhập ngày sinh thật của bạn/.test(document.body.innerText.toLowerCase())"):
                     return "REAL_BIRTHDAY_REQUIRED"
                 
+                # use another profile va log into instagram => dang nhap lai voi data moi 
+                if self.driver.execute_script("return /log into instagram|use another profile/.test(document.body.innerText.toLowerCase())"):
+                    return "RETRY_UNUSUAL_LOGIN"  
+                
                 # URL checks
                 # current_url = self.driver.current_url
                 # if "instagram.com/" in current_url and "challenge" not in current_url:
@@ -1015,9 +1040,7 @@ class InstagramExceptionStep:
                 if self.driver.execute_script("return document.querySelector('button[type=\"submit\"]') !== null && /save info|not now|để sau/.test(document.body.innerText.toLowerCase())"):
                     return "LOGGED_IN_SUCCESS"
                 
-                # use another profile va log into instagram => dang nhap lai voi data moi 
-                if self.driver.execute_script("return /log into another account|use another profile/.test(document.body.innerText.toLowerCase())"):
-                    return "RETRY_UNUSUAL_LOGIN"
+                
                 
                 # Want to subscribe or continue
                 if self.driver.execute_script("return /subscribe/.test(document.body.innerText.toLowerCase())"):
@@ -1029,7 +1052,7 @@ class InstagramExceptionStep:
                 if consecutive_failures >= max_consecutive_failures:
                     print(f"   [Step 2] Too many JS failures in verification check: {e}")
                     break
-            time.sleep(1)
+            time.sleep(0.5)
         return "TIMEOUT"
 
     def _fill_input_with_delay(self, input_el, text_value):
