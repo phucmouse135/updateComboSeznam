@@ -161,7 +161,7 @@ class InstagramExceptionStep:
         if status == "CONFIRM_TRUSTED_DEVICE":
             print("   [Step 2] Handling Confirm Trusted Device...")
             # Click "This Was Me" button
-            wait_and_click(self.driver, By.XPATH, "//button[contains(text(), 'This Was Me') or contains(text(), 'Đây là tôi')]", timeout=20)
+            wait_and_click(self.driver, By.XPATH, "//button[contains(text(), 'Close') or contains(text(), 'Đóng')]", timeout=20)
             WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             time.sleep(2)
             self.driver.get("https://www.instagram.com/")
