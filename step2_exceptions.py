@@ -420,8 +420,8 @@ class InstagramExceptionStep:
             print("   [Step 2] Handling Email Checkpoint...")
             result = self._solve_email_checkpoint(ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth)
             
-            time.sleep(3)
             wait_dom_ready(self.driver, timeout=20)
+            time.sleep(3)
             new_status = self._check_verification_result()
             print(f"   [Step 2] Status after Email Checkpoint: {new_status}")
             # Anti-hang: If status unchanged, refresh to avoid loop
@@ -441,6 +441,7 @@ class InstagramExceptionStep:
             print("   [Step 2] Login Failed Something Went Wrong detected. Refreshing page to retry...")
             self.driver.get("https://www.instagram.com/")
             WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+            time.sleep(2)
             new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
@@ -1091,6 +1092,36 @@ class InstagramExceptionStep:
             body_text = self.driver.find_element(By.TAG_NAME, "body").text[:500]  # First 500 chars
             print(f"   [Step 2] TIMEOUT reached. Current URL: {current_url}")
             print(f"   [Step 2] Page body preview: {body_text}...")
+            
+            # Additional check: If we're on checkpoint mail screen but regex didn't catch it
+            # Check for radio buttons (typical in checkpoint mail)
+            try:
+                radios = self.driver.execute_script("return Array.from(document.querySelectorAll('input[type=\"radio\"]')).length;")
+                if radios > 0:
+                    print(f"   [Step 2] Found {radios} radio buttons, likely checkpoint mail screen")
+                    return "CHECKPOINT_MAIL"
+            except:
+                pass
+            
+            # Check for code input fields
+            try:
+                code_inputs = self.driver.execute_script("return Array.from(document.querySelectorAll('input[type=\"text\"], input[name=\"security_code\"], input[id=\"security_code\"])).length;")
+                if code_inputs > 0:
+                    print(f"   [Step 2] Found {code_inputs} text inputs, likely checkpoint mail screen")
+                    return "CHECKPOINT_MAIL"
+            except:
+                pass
+            
+            # Check for common checkpoint mail keywords that might have been missed
+            try:
+                full_body = self.driver.execute_script("return document.body.innerText.toLowerCase();")
+                checkpoint_keywords = ["checkpoint", "verify", "verification", "security code", "confirmation code", "email verification", "mã xác nhận", "xác nhận email"]
+                if any(keyword in full_body for keyword in checkpoint_keywords):
+                    print("   [Step 2] Found checkpoint-related keywords, likely checkpoint mail screen")
+                    return "CHECKPOINT_MAIL"
+            except:
+                pass
+                
         except Exception as e:
             print(f"   [Step 2] Error logging timeout state: {e}")
         return "TIMEOUT"
