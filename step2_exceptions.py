@@ -21,6 +21,8 @@ class InstagramExceptionStep:
         self.driver = driver
         # Callback for password change, can be set externally
         self.on_password_changed = self._default_on_password_changed
+        # Instance of step1 login
+        self.step1_login = step1_login(self.driver)
 
     def _safe_execute_script(self, script, default=None, retries=2):
         """Execute JS script with retry on timeout errors."""
@@ -28,13 +30,15 @@ class InstagramExceptionStep:
             try:
                 return self.driver.execute_script(script)
             except Exception as e:
-                if "timeout" in str(e).lower() or "renderer" in str(e).lower():
-                    print(f"   [Step 2] JS timeout on attempt {attempt+1}, retrying...")
-                    time.sleep(1)
+                error_str = str(e).lower()
+                if "timeout" in error_str or "renderer" in error_str or "receiving message" in error_str:
+                    print(f"   [Step 2] JS renderer timeout on attempt {attempt+1}, retrying...")
+                    time.sleep(2)  # Longer sleep
                     continue
                 else:
                     print(f"   [Step 2] JS error: {e}")
                     return default
+        print(f"   [Step 2] JS failed after {retries+1} attempts, returning default")
         return default
 
     def _check_status_change_with_timeout(self, initial_status, timeout=15):
@@ -50,6 +54,50 @@ class InstagramExceptionStep:
         WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
         time.sleep(2)
         return self._check_verification_result()
+
+    def _robust_click_button(self, selectors, timeout=20, retries=3):
+        """Robust button clicking with multiple selectors and retries."""
+        for attempt in range(retries):
+            for selector_type, sel in selectors:
+                try:
+                    if selector_type == "xpath":
+                        element = WebDriverWait(self.driver, timeout).until(
+                            EC.element_to_be_clickable((By.XPATH, sel))
+                        )
+                    elif selector_type == "css":
+                        element = WebDriverWait(self.driver, timeout).until(
+                            EC.element_to_be_clickable((By.CSS_SELECTOR, sel))
+                        )
+                    elif selector_type == "js":
+                        # For JS selector, assume it's a script that returns the element
+                        element = self._safe_execute_script(sel)
+                        if element:
+                            self._safe_execute_script("arguments[0].click();", None, element)
+                            print(f"   [Step 2] Clicked button via JS selector on attempt {attempt+1}")
+                            return True
+                    else:
+                        continue
+                    
+                    if element:
+                        # Try Selenium click first
+                        try:
+                            element.click()
+                            print(f"   [Step 2] Clicked button via {selector_type}: {sel} on attempt {attempt+1}")
+                            return True
+                        except Exception as click_e:
+                            print(f"   [Step 2] Selenium click failed, trying JS: {click_e}")
+                            # Fallback to JS click
+                            try:
+                                self._safe_execute_script("arguments[0].click();", None, element)
+                                print(f"   [Step 2] Clicked button via JS fallback on attempt {attempt+1}")
+                                return True
+                            except Exception as js_e:
+                                print(f"   [Step 2] JS click failed: {js_e}")
+                except Exception as e:
+                    print(f"   [Step 2] Failed to find/click button {selector_type}: {sel} - {e}")
+            time.sleep(1)  # Wait before retry
+        print(f"   [Step 2] Failed to click button after {retries} attempts")
+        return False
 
     def _default_on_password_changed(self, username, new_password):
         # Default: do nothing. GUI or caller can override this.
@@ -237,9 +285,9 @@ class InstagramExceptionStep:
         # CONFIRM_TRUSTED_DEVICE
         if status == "CONFIRM_TRUSTED_DEVICE":
             print("   [Step 2] Handling Confirm Trusted Device...")
-            # Click "Close" button using JS for precision
-            try:
-                close_button = self._safe_execute_script("""
+            # Click "Close" button using robust method
+            self._robust_click_button([
+                ("js", """
                     var buttons = document.querySelectorAll('button');
                     for (var i = 0; i < buttons.length; i++) {
                         if (buttons[i].textContent.trim().toLowerCase().includes('close')) {
@@ -247,14 +295,10 @@ class InstagramExceptionStep:
                         }
                     }
                     return null;
-                """)
-                if close_button:
-                    self._safe_execute_script("arguments[0].click();", close_button)
-                    print("   [Step 2] Clicked 'Close' button via JS.")
-                else:
-                    print("   [Step 2] 'Close' button not found via JS.")
-            except Exception as e:
-                print(f"   [Step 2] Error clicking 'Close' via JS: {e}")
+                """),
+                ("xpath", "//button[contains(text(), 'Close')]"),
+                ("css", "button")
+            ])
             WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             time.sleep(2)
             new_status = self._check_verification_result()
@@ -267,9 +311,21 @@ class InstagramExceptionStep:
         if status == "SUBSCRIBE_OR_CONTINUE":
             print("   [Step 2] Handling Subscribe Or Continue...")
             # se co 2 radio button: => chon cai thu 2 (use for free with ads)
-            wait_and_click(self.driver, By.XPATH, "(//input[@type='radio'])[2]", timeout=20)
+            self._robust_click_button([("xpath", "(//input[@type='radio'])[2]"), ("css", "input[type='radio']:nth-of-type(2)")])
             time.sleep(1)
-            wait_and_click(self.driver, By.XPATH, "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]", timeout=20)
+            self._robust_click_button([
+                ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
+                ("css", "button[type='submit']"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim().toLowerCase().includes('continue') || buttons[i].textContent.trim().toLowerCase().includes('tiếp tục')) {
+                            return buttons[i];
+                        }
+                    }
+                    return null;
+                """)
+            ])
             WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             new_status = self._check_verification_result()
             if new_status == status:
@@ -285,7 +341,19 @@ class InstagramExceptionStep:
         if status == "CHECKPOINT_PHONE":
             print("   [Step 2] Handling Checkpoint Phone...")
             # click button back to return CONTINUE_UNUSUAL_LOGIN
-            back_clicked = wait_and_click(self.driver, By.XPATH, "//button[contains(text(), 'Back') or contains(text(), 'Quay lại')]", timeout=20)
+            back_clicked = self._robust_click_button([
+                ("xpath", "//button[contains(text(), 'Back') or contains(text(), 'Quay lại')]"),
+                ("css", "button[type='button']"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim().toLowerCase().includes('back') || buttons[i].textContent.trim().toLowerCase().includes('quay lại')) {
+                            return buttons[i];
+                        }
+                    }
+                    return null;
+                """)
+            ])
             wait_dom_ready(self.driver, timeout=10)
             if back_clicked:
                 return self.handle_status("CONTINUE_UNUSUAL_LOGIN", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
@@ -302,11 +370,19 @@ class InstagramExceptionStep:
                 print(f"   [Step 2] Error selecting email radio: {e}")
             
             # Click continue
-            try:
-                wait_and_click(self.driver, By.XPATH, "//span[contains(text(), 'Continue')]", timeout=20)
-                print("   [Step 2] Clicked Continue.")
-            except Exception as e:
-                print(f"   [Step 2] Error clicking continue: {e}")
+            self._robust_click_button([
+                ("xpath", "//span[contains(text(), 'Continue')]"),
+                ("css", "button[type='submit']"),
+                ("js", """
+                    var spans = document.querySelectorAll('span');
+                    for (var i = 0; i < spans.length; i++) {
+                        if (spans[i].textContent.trim().toLowerCase().includes('continue')) {
+                            return spans[i].closest('button') || spans[i];
+                        }
+                    }
+                    return null;
+                """)
+            ])
             
             WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             new_status = self._check_verification_result()
@@ -318,7 +394,7 @@ class InstagramExceptionStep:
         if status == "RETRY_UNUSUAL_LOGIN":
             # call step 1 to login again with new data 
             print("   [Step 2] Handling Retry Unusual Login...")
-            isLogin = step1_login.perform_login(ig_username, ig_password)
+            isLogin = self.step1_login.perform_login(ig_username, ig_password)
             wait_dom_ready(self.driver, timeout=20)
             if isLogin:
                 return self.handle_status("LOGGED_IN_SUCCESS", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
@@ -443,14 +519,9 @@ class InstagramExceptionStep:
                 wait_dom_ready(self.driver, timeout=20)
                 
                 
-                # Đảm bảo các bước sau luôn dùng mật khẩu mới
-                ig_password = new_pass
-                new_status = self._check_verification_result()
-                print(f"   [Step 2] Status after Password Change: {new_status}")
-                # Anti-hang: If status unchanged, refresh to avoid loop
-                if new_status == status:
-                    self.driver.get("https://www.instagram.com/")
-                return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+                # Sau khi đổi password thành công, cần restart toàn bộ quá trình login với mật khẩu mới
+                print(f"   [Step 2] Password changed successfully. Returning RESTART_LOGIN to restart process with new password.")
+                return "RESTART_LOGIN"
             else:
                 raise Exception("STOP_FLOW_REQUIRE_PASSWORD_CHANGE: No password provided")
 
@@ -562,7 +633,7 @@ class InstagramExceptionStep:
             time.sleep(2)
             if ig_username and ig_password:
                 print("   [Step 2] Calling step1 to login again with new password...")
-                isLogin = step1_login.perform_login(ig_username, ig_password)
+                isLogin = self.step1_login.perform_login(ig_username, ig_password)
                 wait_dom_ready(self.driver, timeout=20)
                 if isLogin == "LOGGED_IN_SUCCESS":
                     return self.handle_status("LOGGED_IN_SUCCESS", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)

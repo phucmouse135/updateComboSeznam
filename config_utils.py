@@ -47,6 +47,21 @@ def get_driver(headless=True , window_rect=None):
     options.add_argument("--disable-renderer-backgrounding")
     options.add_argument("--disable-backgrounding-occluded-windows")
     options.add_argument("--disable-features=VizDisplayCompositor")
+    options.add_argument("--disable-web-security")
+    options.add_argument("--allow-running-insecure-content")
+    options.add_argument("--no-first-run")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--disable-sync")
+    options.add_argument("--disable-translate")
+    options.add_argument("--hide-scrollbars")
+    options.add_argument("--metrics-recording-only")
+    options.add_argument("--mute-audio")
+    options.add_argument("--no-crash-upload")
+    options.add_argument("--disable-logging")
+    options.add_argument("--disable-dev-tools")
+    options.add_argument("--disable-extensions-except")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-component-extensions-with-background-pages")
     
     # Block images (Speed boost)
     options.add_argument("--blink-settings=imagesEnabled=false") 
@@ -69,8 +84,8 @@ def get_driver(headless=True , window_rect=None):
         service = Service(_get_chromedriver_path())
         driver = webdriver.Chrome(service=service, options=options)
         
-        driver.set_page_load_timeout(60) 
-        driver.set_script_timeout(60)
+        driver.set_page_load_timeout(120) 
+        driver.set_script_timeout(120)
         return driver
     except Exception as e:
         print(f"Error creating driver: {e}")

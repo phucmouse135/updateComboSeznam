@@ -224,7 +224,39 @@ class AutomationGUI:
             step2 = InstagramExceptionStep(driver)
             # Truyền callback cập nhật mật khẩu cho step2
             step2.on_password_changed = self.on_password_changed
-            step2.handle_status(status, acc['username'], acc['gmx_user'], acc['gmx_pass'], acc['linked_mail'], acc['password'])
+            final_status = step2.handle_status(status, acc['username'], acc['gmx_user'], acc['gmx_pass'], acc['linked_mail'], acc['password'])
+            
+            # Check if password was changed and login needs to restart
+            if final_status == "RESTART_LOGIN":
+                print(f"   [Main] Password changed, restarting login process for {acc['username']}...")
+                # Get the updated password from the treeview (updated by callback)
+                values = list(self.tree.item(item_id)['values'])
+                updated_password = values[3]  # Password is at index 3
+                acc['password'] = updated_password  # Update the acc dictionary
+                # Restart login with new password
+                status = step1.perform_login(acc['username'], updated_password)
+                if "FAIL" in status:
+                    end_time = time.time()
+                    elapsed = end_time - start_time
+                    note_time = f"Failed in {elapsed:.1f}s"
+                    self.msg_queue.put(("FAIL_CRITICAL", (item_id, status, note_time)))
+                    return
+                time.sleep(2)  # Chờ ổn định trang sau login
+                # Handle exceptions again with new password
+                final_status = step2.handle_status(status, acc['username'], acc['gmx_user'], acc['gmx_pass'], acc['linked_mail'], updated_password)
+            
+            # Check if final status indicates success before proceeding to step 3
+            success_statuses = [
+                "LOGGED_IN_SUCCESS", "COOKIE_CONSENT", "TERMS_AGREEMENT", 
+                "NEW_MESSAGING_TAB", "SUCCESS"
+            ]
+            if final_status not in success_statuses:
+                end_time = time.time()
+                elapsed = end_time - start_time
+                note_time = f"Failed in {elapsed:.1f}s"
+                self.msg_queue.put(("FAIL_CRITICAL", (item_id, f"Failed after restart: {final_status}", note_time)))
+                return
+            
             # Step 3: Crawl
             step3 = InstagramPostLoginStep(driver)
             data = step3.process_post_login(acc['username'])
