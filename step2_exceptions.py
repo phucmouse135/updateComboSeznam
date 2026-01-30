@@ -403,14 +403,23 @@ class InstagramExceptionStep:
 
         # XỬ LÝ CHECKPOINT MAIL
         if status == "CHECKPOINT_MAIL":
-            # Timeout protection for email checkpoint (max 60s)
-            start_time = time.time()
-            TIMEOUT = 60
             print("   [Step 2] Handling Email Checkpoint...")
             result = self._solve_email_checkpoint(ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth)
-            if time.time() - start_time > TIMEOUT:
-                raise Exception("TIMEOUT_CHECKPOINT_MAIL: End")
-            return result
+            
+            time.sleep(3)
+            wait_dom_ready(self.driver, timeout=20)
+            new_status = self._check_verification_result()
+            print(f"   [Step 2] Status after Email Checkpoint: {new_status}")
+            # Anti-hang: If status unchanged, refresh to avoid loop
+            if new_status == status:
+                print(f"   [Step 2] Status unchanged after handling {status}, refreshing to avoid hang...")
+                self.driver.refresh()
+                wait_dom_ready(self.driver, timeout=20)
+                time.sleep(4)
+                new_status = self._check_verification_result()
+                
+            # de quy kiem tra lai trang thai
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
         # LOGIN_FAILED_SOMETHING_WENT_WRONG 
         if status == "LOGIN_FAILED_SOMETHING_WENT_WRONG":
@@ -794,32 +803,26 @@ class InstagramExceptionStep:
             if code_input:
                 try:
                     print(f"   [Step 2] Attempting to input code {code}...")
-                    # Wait for loading overlay to disappear
-                    WebDriverWait(self.driver, 10).until(
-                        lambda d: len(d.find_elements(By.CSS_SELECTOR, "div._acun")) == 0
-                    )
-                    
-                    # Try real input: click and send_keys
+                    # First try to click and focus
                     code_input.click()
-                    time.sleep(2)
-                    code_input.clear()
+                    time.sleep(0.2)
+                    # Clear existing value
+                    code_input.send_keys(Keys.CONTROL + "a")
+                    code_input.send_keys(Keys.DELETE)
+                    time.sleep(0.1)
+                    # Input the code
                     code_input.send_keys(code)
-                    time.sleep(1)
+                    time.sleep(0.5)
+                    # Check if value was set
                     current_value = code_input.get_attribute('value')
                     print(f"   [Step 2] Input field value after send_keys: '{current_value}'")
                     if current_value != code:
-                        print("   [Step 2] send_keys failed, trying again...")
-                        code_input.send_keys(Keys.CONTROL + "a")
-                        code_input.send_keys(Keys.DELETE)
-                        time.sleep(2)
-                        code_input.send_keys(code)
-                        time.sleep(1)
+                        print("   [Step 2] send_keys failed, trying JS...")
+                        # Fallback to JS
+                        self.driver.execute_script("arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", code_input, code)
+                        time.sleep(0.2)
                         current_value = code_input.get_attribute('value')
-                        print(f"   [Step 2] Input field value after retry: '{current_value}'")
-                        if current_value != code:
-                            print("   [Step 2] send_keys failed again.")
-                    else:
-                        print("   [Step 2] send_keys successful.")
+                        print(f"   [Step 2] Input field value after JS: '{current_value}'")
                     # Send Enter
                     code_input.send_keys(Keys.ENTER)
                     time.sleep(1)
@@ -871,6 +874,8 @@ class InstagramExceptionStep:
                     raise Exception("STOP_FLOW_CHECK_MAIL: No code found in mail")
             print(f"   [Step 2] Inputting code {code}...")
             try:
+                if not self._is_driver_alive():
+                    raise Exception("Browser closed before input")
                 input_code_func(code)
                 if not self._is_driver_alive():
                     raise Exception("Browser closed during input")
@@ -883,7 +888,7 @@ class InstagramExceptionStep:
                 check_result = self._check_verification_result()
                 print(f"   [Step 2] Result: {check_result}")
             except Exception as e:
-                if "closed" in str(e).lower() or "crash" in str(e).lower() or "stale" in str(e).lower():
+                if "closed" in str(e).lower() or "crash" in str(e).lower() or "stale" in str(e).lower() or "not reachable" in str(e).lower():
                     raise Exception("STOP_FLOW_CRASH: Browser closed during code verification")
                 else:
                     print(f"   [Step 2] Error during code input/verification: {e}")
