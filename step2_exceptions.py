@@ -20,9 +20,18 @@ class InstagramExceptionStep:
     def __init__(self, driver):
         self.driver = driver
         # Callback for password change, can be set externally
-        self.on_password_changed = self._default_on_password_changed
+        # Ensure it's always callable
+        if hasattr(self, '_default_on_password_changed'):
+            self.on_password_changed = self._default_on_password_changed
+        else:
+            # Fallback if method doesn't exist
+            self.on_password_changed = lambda username, new_password: print(f"   [Step 2] Password changed for {username}: {new_password[:3]}***")
         # Instance of step1 login
         self.step1_login = step1_login(self.driver)
+
+    def _default_on_password_changed(self, username, new_password):
+        """Default callback for password changes - does nothing."""
+        print(f"   [Step 2] Password changed for {username}: {new_password[:3]}***")
 
     def _take_exception_screenshot(self, exception_type, additional_info=""):
         """Take a screenshot when an exception occurs for debugging purposes."""
@@ -78,9 +87,11 @@ class InstagramExceptionStep:
 
     def _robust_click_button(self, selectors, timeout=20, retries=3):
         """Robust button clicking with multiple selectors and retries."""
+        print(f"   [Step 2] Attempting to click button with {len(selectors)} selectors...")
         for attempt in range(retries):
             for selector_type, sel in selectors:
                 try:
+                    print(f"   [Step 2] Trying selector: {selector_type} - {sel[:50]}...")
                     if selector_type == "xpath":
                         element = WebDriverWait(self.driver, timeout).until(
                             EC.element_to_be_clickable((By.XPATH, sel))
@@ -103,7 +114,7 @@ class InstagramExceptionStep:
                         # Try Selenium click first
                         try:
                             element.click()
-                            print(f"   [Step 2] Clicked button via {selector_type}: {sel} on attempt {attempt+1}")
+                            print(f"   [Step 2] Clicked button via {selector_type}: {sel[:50]}... on attempt {attempt+1}")
                             return True
                         except Exception as click_e:
                             print(f"   [Step 2] Selenium click failed, trying JS: {click_e}")
@@ -115,14 +126,43 @@ class InstagramExceptionStep:
                             except Exception as js_e:
                                 print(f"   [Step 2] JS click failed: {js_e}")
                 except Exception as e:
-                    print(f"   [Step 2] Failed to find/click button {selector_type}: {sel} - {e}")
+                    print(f"   [Step 2] Failed to find/click button {selector_type}: {sel[:50]}... - {str(e)[:100]}")
             time.sleep(1)  # Wait before retry
-        print(f"   [Step 2] Failed to click button after {retries} attempts")
+        print(f"   [Step 2] Failed to click button after {retries} attempts with all selectors")
         return False
 
-    def _default_on_password_changed(self, username, new_password):
-        # Default: do nothing. GUI or caller can override this.
-        pass
+    def _detect_page_change(self, initial_url=None, initial_title=None, timeout=5):
+        """Detect if page has changed/refreshed within timeout period."""
+        if initial_url is None:
+            initial_url = self.driver.current_url
+        if initial_title is None:
+            try:
+                initial_title = self.driver.title
+            except:
+                initial_title = None
+
+        end_time = time.time() + timeout
+        while time.time() < end_time:
+            try:
+                current_url = self.driver.current_url
+                current_title = self.driver.title
+                ready_state = self.driver.execute_script("return document.readyState")
+
+                if current_url != initial_url:
+                    print(f"   [Step 2] Page URL changed: {initial_url} -> {current_url}")
+                    return True, "url_changed"
+                if current_title != initial_title and initial_title is not None:
+                    print(f"   [Step 2] Page title changed: {initial_title} -> {current_title}")
+                    return True, "title_changed"
+                if ready_state == "complete":
+                    return False, "page_stable"
+            except Exception as e:
+                print(f"   [Step 2] Error detecting page change: {e}")
+                return True, "error_checking"
+
+            time.sleep(0.5)
+
+        return False, "timeout"
 
     # ==========================================
     # 1. HELPER: VALIDATE MASKED EMAIL
@@ -242,65 +282,172 @@ class InstagramExceptionStep:
                     print("   [Step 2] Could not find confirm password input, using same input for both")
                     confirm_pass_input = new_pass_input  # Fallback: dùng cùng ô nếu không tìm thấy
             
-            # Nhập password vào cả 2 ô với delay để tránh stale element
-            try:
-                new_pass_input.clear()
-                new_pass_input.send_keys(new_password)
-                print(f"   [Step 2] Entered new password in first field")
-                time.sleep(1)  # Delay to avoid triggering validation too quickly
-                
-                if confirm_pass_input != new_pass_input:  # Chỉ nhập nếu khác ô
-                    confirm_pass_input.clear()
-                    confirm_pass_input.send_keys(new_password)
-                    print(f"   [Step 2] Entered confirm password in second field")
+            # Nhập password với multiple fallback strategies để tránh stale element
+            input_success = False
+            for input_attempt in range(3):
+                try:
+                    # Strategy 1: Direct Selenium input
+                    new_pass_input.clear()
+                    new_pass_input.send_keys(new_password)
+                    print(f"   [Step 2] Entered new password in first field (attempt {input_attempt+1})")
                     time.sleep(1)
-            except Exception as e:
-                error_str = str(e).lower()
-                if "stale" in error_str:
-                    print(f"   [Step 2] Stale element during password input: {e}. Retrying...")
-                    # Re-find elements and retry
-                    time.sleep(2)
-                    new_pass_input = wait_element(self.driver, By.ID, "new_password1", timeout=10) or \
-                                   wait_element(self.driver, By.CSS_SELECTOR, "input[type='password']", timeout=10)
-                    if new_pass_input:
-                        new_pass_input.clear()
-                        new_pass_input.send_keys(new_password)
-                        print(f"   [Step 2] Re-entered new password after stale element recovery")
-                    else:
-                        raise Exception(f"Could not recover from stale element during password input: {e}")
-                else:
-                    raise e
 
-            # Wait a bit for any client-side validation or page changes
+                    if confirm_pass_input != new_pass_input:
+                        confirm_pass_input.clear()
+                        confirm_pass_input.send_keys(new_password)
+                        print(f"   [Step 2] Entered confirm password in second field (attempt {input_attempt+1})")
+                        time.sleep(1)
+
+                    # Verify input was successful
+                    if new_pass_input.get_attribute('value') == new_password:
+                        input_success = True
+                        print(f"   [Step 2] Password input verified successful")
+                        break
+                    else:
+                        print(f"   [Step 2] Password input verification failed, value: '{new_pass_input.get_attribute('value')}'")
+                        continue
+
+                except Exception as e:
+                    error_str = str(e).lower()
+                    if "stale" in error_str or ("element" in error_str and "reference" in error_str):
+                        print(f"   [Step 2] Stale element during password input (attempt {input_attempt+1}): {e}")
+
+                        # Strategy 2: Re-find elements and retry
+                        try:
+                            time.sleep(2)
+                            # Re-find password inputs
+                            new_pass_input = wait_element(self.driver, By.ID, "new_password1", timeout=10)
+                            if not new_pass_input:
+                                new_pass_input = wait_element(self.driver, By.CSS_SELECTOR, "input[type='password']", timeout=10)
+
+                            if new_pass_input:
+                                confirm_pass_input = wait_element(self.driver, By.ID, "new_password2", timeout=5)
+                                if not confirm_pass_input:
+                                    confirm_pass_input = new_pass_input  # Use same input if confirm not found
+
+                                print(f"   [Step 2] Re-found password inputs, retrying input...")
+                                continue  # Retry the input loop
+                            else:
+                                print(f"   [Step 2] Could not re-find password inputs after stale element")
+                        except Exception as refind_e:
+                            print(f"   [Step 2] Error re-finding elements: {refind_e}")
+
+                        # Strategy 3: JavaScript input as last resort
+                        try:
+                            print(f"   [Step 2] Trying JavaScript input fallback...")
+                            # Find inputs via JavaScript
+                            js_script = """
+                                var inputs = document.querySelectorAll('input[type="password"]');
+                                if (inputs.length >= 1) {
+                                    inputs[0].value = arguments[0];
+                                    inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+                                    inputs[0].dispatchEvent(new Event('change', { bubbles: true }));
+                                    if (inputs.length >= 2) {
+                                        inputs[1].value = arguments[0];
+                                        inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+                                        inputs[1].dispatchEvent(new Event('change', { bubbles: true }));
+                                    }
+                                    return true;
+                                }
+                                return false;
+                            """
+                            js_result = self.driver.execute_script(js_script, new_password)
+                            if js_result:
+                                print(f"   [Step 2] JavaScript password input successful")
+                                input_success = True
+                                break
+                            else:
+                                print(f"   [Step 2] JavaScript input failed - no password inputs found")
+                        except Exception as js_e:
+                            print(f"   [Step 2] JavaScript input error: {js_e}")
+
+                        continue  # Try next input attempt
+                    else:
+                        # Non-stale error, re-raise
+                        raise e
+
+            if not input_success:
+                raise Exception("Failed to input password after all attempts and strategies")
+
+            # Wait for page to stabilize after password input
+            print(f"   [Step 2] Waiting for page stabilization after password input...")
             time.sleep(2)
-            
-            # Nhấn nút Next với retry và stale element handling
+
+            # Check if page has changed/refreshed by monitoring URL and readyState
+            initial_url = self.driver.current_url
+            initial_ready_state = self.driver.execute_script("return document.readyState")
+
+            # Wait up to 10 seconds for any page changes to complete
+            for wait_attempt in range(10):
+                time.sleep(1)
+                try:
+                    current_url = self.driver.current_url
+                    current_ready_state = self.driver.execute_script("return document.readyState")
+
+                    if current_ready_state == "complete" and current_url != initial_url:
+                        print(f"   [Step 2] Page changed/refreshed to: {current_url}")
+                        # Wait a bit more for dynamic content to load
+                        time.sleep(2)
+                        break
+                    elif current_ready_state == "complete":
+                        print(f"   [Step 2] Page stabilized, ready to proceed")
+                        break
+                except Exception as e:
+                    print(f"   [Step 2] Error checking page state: {e}")
+                    break
+
+            # Additional wait for any client-side validation
+            time.sleep(2)
+
+            # Nhấn nút Next với comprehensive stale element handling
             next_clicked = False
             next_selectors = [
-                (By.XPATH, "//button[contains(text(), 'Next')]") ,
+                (By.XPATH, "//button[contains(text(), 'Next')]"),
+                (By.XPATH, "//button[contains(text(), 'Tiếp')]"),
                 (By.CSS_SELECTOR, "div[role='button'][tabindex='0']"),
                 (By.CSS_SELECTOR, "button[type='submit']"),
                 (By.XPATH, "//button[contains(@class, 'x1i10hfl')]"),
                 (By.CSS_SELECTOR, "div.x1i10hfl.xjqpnuy.xc5r6h4.xqeqjp1.x1phubyo.x972fbf.x10w94by.x1qhh985.x14e42zd.xdl72j9.x2lah0s.x3ct3a4.xdj266r.x14z9mp.xat24cr.x1lziwak.x2lwn1j.xeuugli.xexx8yu.x18d9i69.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1q0g3np.x1lku1pv.x1a2a7pz.x6s0dn4.xjyslct.x1obq294.x5a5i1n.xde0f50.x15x8krk.x1ejq31n.x18oe1m7.x1sy0etr.xstzfhl.x9f619.x9bdzbf.x1ypdohk.x1f6kntn.xwhw2v2.x10w6t97.xl56j7k.x17ydfre.xf7dkkf.xv54qhq.x1n2onr6.x2b8uid.xlyipyv.x87ps6o.x5c86q.x18br7mf.x1i0vuye.xh8yej3.x18cabeq.x158me93.xk4oym4.x1uugd1q.x3nfvp2")
             ]
-            
-            for attempt in range(3):  # Retry up to 3 times for stale elements
+
+            # JavaScript click as ultimate fallback
+            js_click_script = """
+                var buttons = document.querySelectorAll('button, div[role="button"], input[type="submit"]');
+                for (var i = 0; i < buttons.length; i++) {
+                    var btn = buttons[i];
+                    if (btn.offsetParent !== null && (btn.textContent.toLowerCase().includes('next') ||
+                        btn.textContent.toLowerCase().includes('tiếp') ||
+                        btn.value.toLowerCase().includes('next'))) {
+                        btn.click();
+                        return true;
+                    }
+                }
+                return false;
+            """
+
+            for attempt in range(5):  # Increased retries for stale elements
+                print(f"   [Step 2] Next button attempt {attempt+1}/5")
+
+                # Try Selenium selectors first
                 for by, sel in next_selectors:
                     try:
                         next_btns = self.driver.find_elements(by, sel)
                         for btn in next_btns:
                             if btn.is_displayed() and btn.is_enabled():
-                                # Try regular click first
                                 try:
                                     btn.click()
-                                    print(f"   [Step 2] Clicked Next after password change via selector: {sel}")
+                                    print(f"   [Step 2] Clicked Next via Selenium: {sel}")
                                     next_clicked = True
                                     break
                                 except Exception as click_e:
-                                    # Try JS click as fallback
+                                    error_str = str(click_e).lower()
+                                    if "stale" in error_str:
+                                        print(f"   [Step 2] Stale element during click, continuing to next selector...")
+                                        continue
                                     try:
+                                        # Try JS click on this specific element
                                         self.driver.execute_script("arguments[0].click();", btn)
-                                        print(f"   [Step 2] Clicked Next via JS fallback: {sel}")
+                                        print(f"   [Step 2] Clicked Next via JS fallback on element: {sel}")
                                         next_clicked = True
                                         break
                                     except Exception as js_e:
@@ -311,22 +458,41 @@ class InstagramExceptionStep:
                     except Exception as e:
                         error_str = str(e).lower()
                         if "stale" in error_str:
-                            print(f"   [Step 2] Stale element when finding Next button (attempt {attempt+1}), waiting and retrying...")
-                            time.sleep(2)
+                            print(f"   [Step 2] Stale element when finding button {sel}, continuing...")
                             continue
                         else:
-                            print(f"   [Step 2] Error finding Next button via selector: {sel} - {e}")
+                            print(f"   [Step 2] Error with selector {sel}: {e}")
                             continue
-                    if time.time() - start_time > TIMEOUT:
-                        raise Exception("TIMEOUT_REQUIRE_PASSWORD_CHANGE: Next button find")
+                    if next_clicked:
+                        break
+
                 if next_clicked:
                     break
-                if attempt < 2:  # Don't wait after last attempt
+
+                # If Selenium failed, try JavaScript approach
+                if not next_clicked:
+                    try:
+                        js_result = self.driver.execute_script(js_click_script)
+                        if js_result:
+                            print(f"   [Step 2] Clicked Next via JavaScript fallback (attempt {attempt+1})")
+                            next_clicked = True
+                            break
+                        else:
+                            print(f"   [Step 2] JavaScript click found no suitable buttons (attempt {attempt+1})")
+                    except Exception as js_e:
+                        print(f"   [Step 2] JavaScript click error: {js_e}")
+
+                # Wait between attempts, but not after the last one
+                if attempt < 4 and not next_clicked:
+                    print(f"   [Step 2] Next button not found, waiting 2s before retry...")
                     time.sleep(2)
-                    
+
+                if time.time() - start_time > TIMEOUT:
+                    raise Exception("TIMEOUT_REQUIRE_PASSWORD_CHANGE: Next button find")
+
             if not next_clicked:
-                print("   [Step 2] Could not find Next button after password change (all selectors tried).")
-                self._take_exception_screenshot("NEXT_BUTTON_NOT_FOUND", "After password change")
+                print("   [Step 2] Could not find Next button after password change (all methods tried).")
+                self._take_exception_screenshot("NEXT_BUTTON_NOT_FOUND", "After password change - all methods failed")
                 raise Exception("Could not find Next button after password change")
                 
             if time.time() - start_time > TIMEOUT:
@@ -381,25 +547,54 @@ class InstagramExceptionStep:
         # CONFIRM_TRUSTED_DEVICE
         if status == "CONFIRM_TRUSTED_DEVICE":
             print("   [Step 2] Handling Confirm Trusted Device...")
-            # Click "Close" button using robust method
-            self._robust_click_button([
+            # Click "Close" button using robust method with more selectors
+            success = self._robust_click_button([
                 ("js", """
-                    var buttons = document.querySelectorAll('button');
+                    var buttons = document.querySelectorAll('button, [role=\"button\"], div[role=\"button\"]');
                     for (var i = 0; i < buttons.length; i++) {
-                        if (buttons[i].textContent.trim().toLowerCase().includes('close')) {
+                        var text = buttons[i].textContent.trim().toLowerCase();
+                        if (text.includes('close') || text.includes('x') || text.includes('cancel') ||
+                            text.includes('not now') || text.includes('skip') || text.includes('dismiss')) {
                             return buttons[i];
                         }
                     }
+                    // Also check for close icons (SVG/X)
+                    var closeIcons = document.querySelectorAll('svg[aria-label*=\"close\"], svg[aria-label*=\"x\"], button svg');
+                    if (closeIcons.length > 0) {
+                        return closeIcons[0].closest('button') || closeIcons[0];
+                    }
                     return null;
                 """),
-                ("xpath", "//button[contains(text(), 'Close')]"),
-                ("css", "button")
+                ("xpath", "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'close')]"),
+                ("xpath", "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'cancel')]"),
+                ("xpath", "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'not now')]"),
+                ("xpath", "//*[contains(@aria-label, 'close') or contains(@aria-label, 'Close')]"),
+                ("css", "button[data-testid*='close'], button[aria-label*='close']"),
+                ("css", "button")  # Last resort - any button
             ])
+            if success:
+                print("   [Step 2] Successfully clicked close/dismiss button")
+            else:
+                print("   [Step 2] Could not find close button, waiting for auto-dismiss or page change")
+                # Wait a bit for potential auto-dismiss
+                time.sleep(5)
+            
             WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             time.sleep(2)
             new_status = self._check_verification_result()
             if new_status == status:
-                new_status = self._check_status_change_with_timeout(status, 15)
+                print("   [Step 2] Status unchanged, trying to navigate away from trusted device dialog")
+                # Try to click outside the dialog or refresh the page
+                try:
+                    self._safe_execute_script("document.body.click();")
+                    time.sleep(2)
+                    new_status = self._check_verification_result()
+                except:
+                    pass
+                
+                if new_status == status:
+                    new_status = self._check_status_change_with_timeout(status, 15)
+            
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
         
@@ -595,27 +790,54 @@ class InstagramExceptionStep:
             start_time = time.time()
             TIMEOUT = 60
             print("   [Step 2] Handling Require Password Change...")
-            if ig_password :
+            if ig_password:
                 new_pass = ig_password + "@"
                 try:
                     self._handle_require_password_change(new_pass)
                 except Exception as e:
-                    print(f"   [Step 2] Error in _handle_require_password_change: {e}")
-                    # If error, try to recover by refreshing
-                    self.driver.get("https://www.instagram.com/")
-                    wait_dom_ready(self.driver, timeout=20)
-                    time.sleep(2)
-                    self._take_exception_screenshot("REQUIRE_PASSWORD_CHANGE_ERROR", str(e))
-                    raise e  # Re-raise to stop flow
+                    error_msg = str(e)
+                    print(f"   [Step 2] Error in _handle_require_password_change: {error_msg}")
+
+                    # Take screenshot for debugging
+                    self._take_exception_screenshot("REQUIRE_PASSWORD_CHANGE_ERROR", error_msg)
+
+                    # Check if it's a stale element issue that might be recoverable
+                    if "stale" in error_msg.lower() or "element" in error_msg.lower():
+                        print(f"   [Step 2] Stale element detected, attempting page refresh recovery...")
+                        try:
+                            self.driver.refresh()
+                            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+                            time.sleep(3)
+
+                            # Check current status after refresh
+                            current_status = self._check_verification_result()
+                            if current_status != "REQUIRE_PASSWORD_CHANGE":
+                                print(f"   [Step 2] Status changed after refresh: {current_status}")
+                                return self.handle_status(current_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+                            else:
+                                print(f"   [Step 2] Status still REQUIRE_PASSWORD_CHANGE after refresh, re-attempting...")
+                                # Try one more time
+                                self._handle_require_password_change(new_pass)
+                        except Exception as recovery_e:
+                            print(f"   [Step 2] Recovery attempt failed: {recovery_e}")
+                            raise e  # Raise original error
+                    else:
+                        # Non-stale error, raise immediately
+                        raise e
+
                 if time.time() - start_time > TIMEOUT:
                     self._take_exception_screenshot("TIMEOUT_REQUIRE_PASSWORD_CHANGE", "End")
                     raise Exception("TIMEOUT_REQUIRE_PASSWORD_CHANGE: End")
+
                 # Cập nhật lại password mới lên GUI NGAY LẬP TỨC trước khi gọi các bước tiếp theo
-                if hasattr(self, "on_password_changed") and callable(self.on_password_changed):
-                    self.on_password_changed(ig_username, new_pass)
+                if hasattr(self, "on_password_changed") and callable(getattr(self, "on_password_changed", None)):
+                    try:
+                        self.on_password_changed(ig_username, new_pass)
+                    except Exception as callback_e:
+                        print(f"   [Step 2] Error in password change callback: {callback_e}")
                 time.sleep(4)
                 wait_dom_ready(self.driver, timeout=20)
-                
+
                 # Check if we're actually logged in after password change
                 current_status = self._check_verification_result()
                 if current_status in ["LOGGED_IN_SUCCESS", "COOKIE_CONSENT", "TERMS_AGREEMENT"]:
@@ -626,6 +848,7 @@ class InstagramExceptionStep:
                     print(f"   [Step 2] Password changed but not logged in. Status: {current_status}. Returning RESTART_LOGIN to restart process with new password.")
                     return "RESTART_LOGIN"
             else:
+                self._take_exception_screenshot("STOP_FLOW_REQUIRE_PASSWORD_CHANGE", "No password provided")
                 raise Exception("STOP_FLOW_REQUIRE_PASSWORD_CHANGE: No password provided")
 
         if status == "CHANGE_PASSWORD":
@@ -644,8 +867,11 @@ class InstagramExceptionStep:
                     self._take_exception_screenshot("CHANGE_PASSWORD_ERROR", str(e))
                     raise e
                 # Cập nhật lại password mới lên GUI NGAY LẬP TỨC trước khi gọi các bước tiếp theo
-                if hasattr(self, "on_password_changed") and callable(self.on_password_changed):
-                    self.on_password_changed(ig_username, new_pass)
+                if hasattr(self, "on_password_changed") and callable(getattr(self, "on_password_changed", None)):
+                    try:
+                        self.on_password_changed(ig_username, new_pass)
+                    except Exception as callback_e:
+                        print(f"   [Step 2] Error in password change callback: {callback_e}")
                 
                 wait_dom_ready(self.driver, timeout=20)
                 time.sleep(4)
@@ -1270,7 +1496,9 @@ class InstagramExceptionStep:
                                 var links = document.querySelectorAll('a');
                                 for (var i = 0; i < links.length; i++) {
                                     var text = links[i].textContent.trim().toLowerCase();
-                                    if (text.includes('get a new one') || text.includes('get new code') || text.includes('didn\'t get a code') || text.includes('resend')) {
+                                    if (text.includes('get a new one') || text.includes('get new code') || text.includes('get a new code') || 
+                                        text.includes('didn\'t get a code') || text.includes('didn\'t receive') || text.includes('resend') || 
+                                        text.includes('send new code') || text.includes('request new code') || text.includes('try again')) {
                                         return links[i];
                                     }
                                 }
@@ -1374,47 +1602,47 @@ class InstagramExceptionStep:
                 
                 
                 #  Check your email or This email will replace all existing contact and login info on your account
-                if self._safe_execute_script("return /check your email|this email will replace all existing contact and login info on your account/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('check your email') || document.body.innerText.toLowerCase().includes('this email will replace all existing contact and login info on your account')"):
                     return "CHECKPOINT_MAIL"
                 
-                if self._safe_execute_script("return /change password|new password|create a strong password|change your password to secure your account/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('change password') || document.body.innerText.toLowerCase().includes('new password') || document.body.innerText.toLowerCase().includes('create a strong password') || document.body.innerText.toLowerCase().includes('change your password to secure your account')"):
                     # nếu có new confirm new password thì require change password
                     if len(self._safe_execute_script("return Array.from(document.querySelectorAll('input[type=\"password\"]'));", [])) >= 2:
                         return "REQUIRE_PASSWORD_CHANGE"
                     else:
                         return "CHANGE_PASSWORD"
                 
-                if self._safe_execute_script("return /add phone number|send confirmation|log into another account/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('add phone number') || document.body.innerText.toLowerCase().includes('send confirmation') || document.body.innerText.toLowerCase().includes('log into another account')"):
                     return "SUSPENDED_PHONE"
                 
-                if self._safe_execute_script("return /select your birthday|add your birthday/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('select your birthday') || document.body.innerText.toLowerCase().includes('add your birthday')"):
                     return "BIRTHDAY_SCREEN"
                 
-                if self._safe_execute_script("return /allow the use of cookies|posts|save your login info/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('allow the use of cookies') || document.body.innerText.toLowerCase().includes('posts') || document.body.innerText.toLowerCase().includes('save your login info')"):
                     return "SUCCESS"
                 
-                if self._safe_execute_script("return /suspended|đình chỉ/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('suspended') || document.body.innerText.toLowerCase().includes('đình chỉ')"):
                     return "SUSPENDED"
                 # some thing wrong 
-                if self._safe_execute_script("return /something went wrong|đã xảy ra sự cố/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('something went wrong') || document.body.innerText.toLowerCase().includes('đã xảy ra sự cố')"):
                     return "SOMETHING_WRONG"
                 
-                if self._safe_execute_script("return /sorry, there was a problem|please try again/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('sorry, there was a problem') || document.body.innerText.toLowerCase().includes('please try again')"):
                     return "RETRY_UNUSUAL_LOGIN"
                 
                 # Check for wrong code
-                if self._safe_execute_script("return /code isn't right| mã không đúng|incorrect|wrong code|invalid|the code you entered/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('code isn\\'t right') || document.body.innerText.toLowerCase().includes('mã không đúng') || document.body.innerText.toLowerCase().includes('incorrect') || document.body.innerText.toLowerCase().includes('wrong code') || document.body.innerText.toLowerCase().includes('invalid') || document.body.innerText.toLowerCase().includes('the code you entered')"):
                     return "WRONG_CODE"
                 
-                if self._safe_execute_script("return /create a password at least 6 characters long|password must be at least 6 characters/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('create a password at least 6 characters long') || document.body.innerText.toLowerCase().includes('password must be at least 6 characters')"):
                     return "REQUIRE_PASSWORD_CHANGE"
                 
                 # enter your real birthday
-                if self._safe_execute_script("return /enter your real birthday|nhập ngày sinh thật của bạn/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('enter your real birthday') || document.body.innerText.toLowerCase().includes('nhập ngày sinh thật của bạn')"):
                     return "REAL_BIRTHDAY_REQUIRED"
                 
                 # use another profile va log into instagram => dang nhap lai voi data moi 
-                if self._safe_execute_script("return /log into instagram|use another profile/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('log into instagram') || document.body.innerText.toLowerCase().includes('use another profile')"):
                     return "RETRY_UNUSUAL_LOGIN"  
                 
                 # URL checks
@@ -1423,21 +1651,25 @@ class InstagramExceptionStep:
                 #     return "SUCCESS"
                 
                 # Element-based checks for logged in state
-                if self._safe_execute_script("return /posts|followers|search|home/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('posts') || document.body.innerText.toLowerCase().includes('followers') || document.body.innerText.toLowerCase().includes('search') || document.body.innerText.toLowerCase().includes('home')"):
                     return "LOGGED_IN_SUCCESS"
                 
-                if self._safe_execute_script("return /save your login info|we can save your login info|lưu thông tin đăng nhập/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('save your login info') || document.body.innerText.toLowerCase().includes('we can save your login info') || document.body.innerText.toLowerCase().includes('lưu thông tin đăng nhập')"):
                     return "LOGGED_IN_SUCCESS"
                 
                 # save info or not now
-                if self._safe_execute_script("return document.querySelector('button[type=\"submit\"]') !== null && /save info|not now|để sau/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return (document.querySelector('button[type=\"submit\"]') !== null && (document.body.innerText.toLowerCase().includes('save info') || document.body.innerText.toLowerCase().includes('not now') || document.body.innerText.toLowerCase().includes('để sau')))"):
                     return "LOGGED_IN_SUCCESS"
                 
                 
                 
                 # Want to subscribe or continue
-                if self._safe_execute_script("return /subscribe/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('subscribe')"):
                     return "SUBSCRIBE_OR_CONTINUE"
+                
+                # Check if "get new code" option is available
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('get a new one') || document.body.innerText.toLowerCase().includes('get new code') || document.body.innerText.toLowerCase().includes('get a new code') || document.body.innerText.toLowerCase().includes('didn\\'t get a code') || document.body.innerText.toLowerCase().includes('didn\\'t receive') || document.body.innerText.toLowerCase().includes('resend') || document.body.innerText.toLowerCase().includes('send new code') || document.body.innerText.toLowerCase().includes('request new code')"):
+                    return "CAN_GET_NEW_CODE"
                 
                 consecutive_failures = 0  # Reset on successful check
             except Exception as e:

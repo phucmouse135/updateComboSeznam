@@ -24,7 +24,7 @@ def _decode_str(header_value):
     except:
         return str(header_value)
 
-def _fetch_latest_unseen_mail(gmx_user, gmx_pass, subject_keywords, target_username=None, target_email=None, loop_duration=30):
+def _fetch_latest_unseen_mail(gmx_user, gmx_pass, subject_keywords, target_username=None, target_email=None, loop_duration=45):
     if not gmx_user or not gmx_pass: return None
     if "@" not in gmx_user: gmx_user += "@gmx.net"
 
@@ -33,7 +33,7 @@ def _fetch_latest_unseen_mail(gmx_user, gmx_pass, subject_keywords, target_usern
     code_pattern = re.compile(r'\b(\d{6,8})\b')
 
     try:
-        socket.setdefaulttimeout(20)
+        socket.setdefaulttimeout(30)  # Increased timeout
         mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
         try:
             mail.login(gmx_user, gmx_pass)
@@ -42,7 +42,7 @@ def _fetch_latest_unseen_mail(gmx_user, gmx_pass, subject_keywords, target_usern
                 raise Exception("GMX_DIE")
             raise e
 
-        print(f"   [IMAP] Connected. Scanning for User: {target_username} | Mail: {target_email}...")
+        print(f"   [IMAP] Connected. Scanning for User: {target_username} | Mail: {target_email}... (timeout: {loop_duration}s)")
 
         while time.time() - start_time < loop_duration:
             try:
@@ -112,7 +112,10 @@ def _fetch_latest_unseen_mail(gmx_user, gmx_pass, subject_keywords, target_usern
             except Exception as loop_e:
                 print(f"   [IMAP Loop Warn] {loop_e}"); time.sleep(2)
         
-        print("   [IMAP] Timeout: No new code found."); return None
+        elapsed = time.time() - start_time
+        print(f"   [IMAP] Timeout after {elapsed:.1f}s: No verification code found for {target_username}")
+        print("   [IMAP] Possible reasons: Instagram didn't send email, email delayed, or wrong email address")
+        return None
 
     except Exception as e:
         if str(e) == "GMX_DIE": raise e

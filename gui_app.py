@@ -277,32 +277,43 @@ class AutomationGUI:
             
             
             key = ""
-            # Step 4: 2FA
-            step4 = Instagram2FAStep(driver)
-            # Truyền callback để cập nhật mã 2FA lên GUI ngay khi lấy được
-            def on_secret_key_found(secret_key):
-                self.msg_queue.put(("UPDATE_STATUS", (item_id, secret_key, None)))
-            step4.on_secret_key_found = on_secret_key_found
-            key = step4.setup_2fa(acc['gmx_user'], acc['gmx_pass'], acc['username'], acc['linked_mail'])
-            # Always use the original format for 2FA key
-            key_raw = getattr(step4, 'last_secret_key_raw', key)
-            end_time = time.time()
-            elapsed = end_time - start_time
-            note_time = f"Done in {elapsed:.1f}s"
-            self.msg_queue.put(("SUCCESS", (item_id, key_raw, note_time)))
+            step4_started = False  # Flag to track if step 4 has started
+            try:
+                # Step 4: 2FA
+                step4_started = True  # Mark that step 4 has started
+                step4 = Instagram2FAStep(driver)
+                # Truyền callback để cập nhật mã 2FA lên GUI ngay khi lấy được
+                def on_secret_key_found(secret_key):
+                    self.msg_queue.put(("UPDATE_STATUS", (item_id, secret_key, None)))
+                step4.on_secret_key_found = on_secret_key_found
+                key = step4.setup_2fa(acc['gmx_user'], acc['gmx_pass'], acc['username'], acc['linked_mail'])
+                # Always use the original format for 2FA key
+                key_raw = getattr(step4, 'last_secret_key_raw', key)
+                end_time = time.time()
+                elapsed = end_time - start_time
+                note_time = f"Done in {elapsed:.1f}s"
+                self.msg_queue.put(("SUCCESS", (item_id, key_raw, note_time)))
+            except Exception as e:
+                # Handle step 4 specific errors
+                end_time = time.time()
+                elapsed = end_time - start_time
+                note_time = f"Failed in {elapsed:.1f}s"
+                msg = str(e).replace("STOP_FLOW_", "")
+                if step4_started:
+                    # This is a step 4 (2FA) error
+                    self.msg_queue.put(("UPDATE_2FA", (item_id, msg)))
+                    self.msg_queue.put(("FAIL_2FA", (item_id, msg, note_time)))
+                else:
+                    # This is a step 1-3 error
+                    self.msg_queue.put(("FAIL_CRITICAL", (item_id, msg, note_time)))
+                return  # Exit the function after handling step 4 error
         except Exception as e:
             end_time = time.time()
             elapsed = end_time - start_time
             note_time = f"Failed in {elapsed:.1f}s"
             msg = str(e).replace("STOP_FLOW_", "")
-            # Check if step3 was successful (has crawl data) to determine if it's 2FA fail or general fail
-            values = self.tree.item(item_id)['values']
-            has_crawl_data = values[8] and str(values[8]).strip() and values[8] != '0'  # Post count as indicator
-            if has_crawl_data:
-                self.msg_queue.put(("UPDATE_2FA", (item_id, msg)))
-                self.msg_queue.put(("FAIL_2FA", (item_id, msg, note_time)))
-            else:
-                self.msg_queue.put(("FAIL_CRITICAL", (item_id, msg, note_time)))
+            # This catches step 1-3 errors (step 4 errors are handled in inner try-except)
+            self.msg_queue.put(("FAIL_CRITICAL", (item_id, msg, note_time)))
         finally:
             print(f"[TIME] Case {acc['username']} finished in {elapsed:.2f} seconds.")
             if driver: 
@@ -443,7 +454,8 @@ class AutomationGUI:
                     item_id, err, note_time = data
                     self.fail_count += 1
                     self.processed_count += 1
-                    self.update_tree_item(item_id, {8: err[:60], 12: f"2FA Failed | {note_time}"}, "error") 
+                    # Put 2FA error in column 4 (2FA column) instead of post column
+                    self.update_tree_item(item_id, {4: f"ERROR_2FA: {err[:50]}", 12: f"2FA Failed | {note_time}"}, "error") 
                     self.update_stats_label()
                     self.write_result_to_output(item_id, result_type="2fa")
                 
