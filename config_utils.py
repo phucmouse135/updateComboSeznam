@@ -42,6 +42,12 @@ def get_driver(headless=True , window_rect=None):
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu") 
     
+    # Prevent renderer timeout issues
+    options.add_argument("--disable-background-timer-throttling")
+    options.add_argument("--disable-renderer-backgrounding")
+    options.add_argument("--disable-backgrounding-occluded-windows")
+    options.add_argument("--disable-features=VizDisplayCompositor")
+    
     # Block images (Speed boost)
     options.add_argument("--blink-settings=imagesEnabled=false") 
     
@@ -63,8 +69,8 @@ def get_driver(headless=True , window_rect=None):
         service = Service(_get_chromedriver_path())
         driver = webdriver.Chrome(service=service, options=options)
         
-        driver.set_page_load_timeout(30) 
-        driver.set_script_timeout(30)
+        driver.set_page_load_timeout(60) 
+        driver.set_script_timeout(60)
         return driver
     except Exception as e:
         print(f"Error creating driver: {e}")

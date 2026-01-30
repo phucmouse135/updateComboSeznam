@@ -22,6 +22,35 @@ class InstagramExceptionStep:
         # Callback for password change, can be set externally
         self.on_password_changed = self._default_on_password_changed
 
+    def _safe_execute_script(self, script, default=None, retries=2):
+        """Execute JS script with retry on timeout errors."""
+        for attempt in range(retries + 1):
+            try:
+                return self.driver.execute_script(script)
+            except Exception as e:
+                if "timeout" in str(e).lower() or "renderer" in str(e).lower():
+                    print(f"   [Step 2] JS timeout on attempt {attempt+1}, retrying...")
+                    time.sleep(1)
+                    continue
+                else:
+                    print(f"   [Step 2] JS error: {e}")
+                    return default
+        return default
+
+    def _check_status_change_with_timeout(self, initial_status, timeout=15):
+        """Check if status changes within timeout, else redirect to instagram.com"""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            current_status = self._check_verification_result()
+            if current_status != initial_status:
+                return current_status
+            time.sleep(1)
+        print(f"   [Step 2] Status unchanged after {timeout}s, redirecting to instagram.com")
+        self.driver.get("https://www.instagram.com/")
+        WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+        time.sleep(2)
+        return self._check_verification_result()
+
     def _default_on_password_changed(self, username, new_password):
         # Default: do nothing. GUI or caller can override this.
         pass
@@ -96,13 +125,47 @@ class InstagramExceptionStep:
         TIMEOUT = 60
         print(f"   [Step 2] Handling Require Password Change (New password: {new_password})...")
         try:
-            # Tìm chính xác 2 input theo id
-            new_pass_input = self.driver.find_element(By.ID, "new_password1")
-            confirm_pass_input = self.driver.find_element(By.ID, "new_password2")
+            # Tìm chính xác 2 input theo id với wait để tránh lỗi element not found
+            new_pass_input = wait_element(self.driver, By.ID, "new_password1", timeout=20)
+            if not new_pass_input:
+                # Fallback: thử các selector khác nếu id thay đổi
+                fallback_selectors = [
+                    "input[name='new_password']",
+                    "input[type='password']",
+                    "input[placeholder*='new password']",
+                    "input[placeholder*='mật khẩu mới']"
+                ]
+                for sel in fallback_selectors:
+                    new_pass_input = wait_element(self.driver, By.CSS_SELECTOR, sel, timeout=5)
+                    if new_pass_input:
+                        print(f"   [Step 2] Found new password input via fallback selector: {sel}")
+                        break
+                if not new_pass_input:
+                    raise Exception("Could not find new password input field")
+            
+            confirm_pass_input = wait_element(self.driver, By.ID, "new_password2", timeout=20)
+            if not confirm_pass_input:
+                # Fallback cho confirm password
+                confirm_fallback_selectors = [
+                    "input[name='confirm_password']",
+                    "input[name='new_password_confirm']",
+                    "input[type='password']:nth-of-type(2)",  # Giả sử ô thứ 2
+                    "input[placeholder*='confirm']",
+                    "input[placeholder*='xác nhận']"
+                ]
+                for sel in confirm_fallback_selectors:
+                    confirm_pass_input = wait_element(self.driver, By.CSS_SELECTOR, sel, timeout=5)
+                    if confirm_pass_input:
+                        print(f"   [Step 2] Found confirm password input via fallback selector: {sel}")
+                        break
+                if not confirm_pass_input:
+                    print("   [Step 2] Could not find confirm password input, using same input for both")
+                    confirm_pass_input = new_pass_input  # Fallback: dùng cùng ô nếu không tìm thấy
             
             # Nhập password vào cả 2 ô với delay để chính xác
             self._fill_input_with_delay(new_pass_input, new_password)
-            self._fill_input_with_delay(confirm_pass_input, new_password)
+            if confirm_pass_input != new_pass_input:  # Chỉ nhập nếu khác ô
+                self._fill_input_with_delay(confirm_pass_input, new_password)
 
             # Nhấn nút Next (retry nhiều selector)
             next_clicked = False
@@ -174,14 +237,29 @@ class InstagramExceptionStep:
         # CONFIRM_TRUSTED_DEVICE
         if status == "CONFIRM_TRUSTED_DEVICE":
             print("   [Step 2] Handling Confirm Trusted Device...")
-            # Click "This Was Me" button
-            wait_and_click(self.driver, By.XPATH, "//button[contains(text(), 'Close') or contains(text(), 'Đóng')]", timeout=20)
-            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
-            time.sleep(2)
-            self.driver.get("https://www.instagram.com/")
-            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+            # Click "Close" button using JS for precision
+            try:
+                close_button = self._safe_execute_script("""
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim().toLowerCase().includes('close')) {
+                            return buttons[i];
+                        }
+                    }
+                    return null;
+                """)
+                if close_button:
+                    self._safe_execute_script("arguments[0].click();", close_button)
+                    print("   [Step 2] Clicked 'Close' button via JS.")
+                else:
+                    print("   [Step 2] 'Close' button not found via JS.")
+            except Exception as e:
+                print(f"   [Step 2] Error clicking 'Close' via JS: {e}")
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             time.sleep(2)
             new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
         
@@ -192,8 +270,10 @@ class InstagramExceptionStep:
             wait_and_click(self.driver, By.XPATH, "(//input[@type='radio'])[2]", timeout=20)
             time.sleep(1)
             wait_and_click(self.driver, By.XPATH, "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]", timeout=20)
-            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
                 
         
@@ -228,15 +308,17 @@ class InstagramExceptionStep:
             except Exception as e:
                 print(f"   [Step 2] Error clicking continue: {e}")
             
-            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             
         # RETRY_UNSUAL_LOGIN
         if status == "RETRY_UNUSUAL_LOGIN":
             # call step 1 to login again with new data 
             print("   [Step 2] Handling Retry Unusual Login...")
-            isLogin = step1_login.perform_login(self, ig_username, ig_password)
+            isLogin = step1_login.perform_login(ig_username, ig_password)
             wait_dom_ready(self.driver, timeout=20)
             if isLogin:
                 return self.handle_status("LOGGED_IN_SUCCESS", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
@@ -331,13 +413,9 @@ class InstagramExceptionStep:
             time.sleep(2)
             new_status = self._check_verification_result()
             print(f"   [Step 2] Status after Continue: {new_status}")
-            # Anti-hang: If status unchanged, refresh to avoid loop
+            # Anti-hang: If status unchanged, check with timeout
             if new_status == status:
-                print(f"   [Step 2] Status unchanged after handling {status}, refreshing to avoid hang...")
-                self.driver.refresh()
-                wait_dom_ready(self.driver, timeout=20)
-                time.sleep(2)
-                new_status = self._check_verification_result()
+                new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
         if status == "REQUIRE_PASSWORD_CHANGE":
@@ -484,7 +562,7 @@ class InstagramExceptionStep:
             time.sleep(2)
             if ig_username and ig_password:
                 print("   [Step 2] Calling step1 to login again with new password...")
-                isLogin = step1_login.perform_login(self, ig_username, ig_password)
+                isLogin = step1_login.perform_login(ig_username, ig_password)
                 wait_dom_ready(self.driver, timeout=20)
                 if isLogin == "LOGGED_IN_SUCCESS":
                     return self.handle_status("LOGGED_IN_SUCCESS", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
@@ -802,6 +880,62 @@ class InstagramExceptionStep:
                 if "GMX_DIE" in str(e): raise e
                 return None
         def input_code(code):
+            code = str(code).strip()
+            if len(code) != 6:
+                print(f"   [Step 2] Warning: Code length is {len(code)}, expected 6.")
+            
+            # Check for multiple code inputs (6 separate fields)
+            multiple_inputs = self.driver.execute_script("""
+                var inputs = document.querySelectorAll('input[type="text"], input[maxlength="1"]');
+                var codeInputs = [];
+                for (var i = 0; i < inputs.length; i++) {
+                    var inp = inputs[i];
+                    if (inp.offsetParent !== null && (inp.name && inp.name.toLowerCase().includes('code') || inp.placeholder && inp.placeholder.toLowerCase().includes('code') || inp.className && inp.className.toLowerCase().includes('code'))) {
+                        codeInputs.push(inp);
+                    }
+                }
+                if (codeInputs.length < 2) {
+                    // Fallback: all text inputs if no specific code inputs found
+                    codeInputs = Array.from(document.querySelectorAll('input[type="text"]')).filter(function(inp) {
+                        return inp.offsetParent !== null;
+                    });
+                }
+                return codeInputs.slice(0, 6);  // Limit to 6
+            """)
+            
+            if len(multiple_inputs) > 1 and len(multiple_inputs) <= 6:
+                print(f"   [Step 2] Detected {len(multiple_inputs)} separate code input fields. Inputting code digit by digit.")
+                try:
+                    for i, inp in enumerate(multiple_inputs):
+                        if i < len(code):
+                            self.driver.execute_script("arguments[0].click();", inp)
+                            time.sleep(0.1)
+                            self.driver.execute_script("arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", inp, code[i])
+                            time.sleep(0.1)
+                    # After inputting all digits, try to submit
+                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", multiple_inputs[-1])
+                    time.sleep(0.5)
+                    # Try to find and click submit button
+                    submit_btn = self.driver.execute_script("""
+                        var buttons = document.querySelectorAll('button[type="submit"], button');
+                        for (var i = 0; i < buttons.length; i++) {
+                            if (buttons[i].textContent.trim().toLowerCase().includes('confirm') || buttons[i].textContent.trim().toLowerCase().includes('submit') || buttons[i].textContent.trim().toLowerCase().includes('next')) {
+                                return buttons[i];
+                            }
+                        }
+                        return null;
+                    """)
+                    if submit_btn:
+                        self.driver.execute_script("arguments[0].click();", submit_btn)
+                        print("   [Step 2] Clicked submit button after digit input.")
+                    else:
+                        print("   [Step 2] No submit button found after digit input.")
+                except Exception as e:
+                    print(f"   [Step 2] Error inputting code into separate fields: {e}")
+                    raise Exception("STOP_FLOW_CHECKPOINT: Failed to input code into separate fields")
+                return
+            
+            # Fallback to single input field
             code_input = None
             # Fast JS check for common code inputs
             code_input = self.driver.execute_script("""
@@ -815,7 +949,7 @@ class InstagramExceptionStep:
                 return null;
             """)
             if code_input and code_input.is_displayed() and code_input.is_enabled():
-                print("   [Step 2] Found code input via fast JS check")
+                print("   [Step 2] Found single code input via fast JS check")
             else:
                 code_input = None
                 # Ưu tiên tìm label "Code" rồi lấy input liên kết
@@ -850,7 +984,7 @@ class InstagramExceptionStep:
             
             if code_input:
                 try:
-                    print(f"   [Step 2] Attempting to input code {code}...")
+                    print(f"   [Step 2] Attempting to input code {code} into single field...")
                     # First try to click and focus
                     code_input.click()
                     time.sleep(0.2)
@@ -949,14 +1083,26 @@ class InstagramExceptionStep:
             if check_result in ["CHECKPOINT_MAIL", "WRONG_CODE", "TIMEOUT"]:
                 if attempt < max_retries:
                     if check_result == "WRONG_CODE":
-                        # Click "Get a new one" link to request new code
+                        # Click "Get new code" link using JS for precision
                         try:
-                            get_new_link = self.driver.find_element(By.XPATH, "//a[contains(text(), 'Get a new one') or contains(@href, '_replay')]")
-                            get_new_link.click()
-                            print("   [Step 2] Clicked 'Get a new one' to request new code.")
-                            time.sleep(2)  # Wait for new code to be sent
+                            get_new_link = self.driver.execute_script("""
+                                var links = document.querySelectorAll('a');
+                                for (var i = 0; i < links.length; i++) {
+                                    var text = links[i].textContent.trim().toLowerCase();
+                                    if (text.includes('get a new one') || text.includes('get new code') || text.includes('didn\'t get a code') || text.includes('resend')) {
+                                        return links[i];
+                                    }
+                                }
+                                return null;
+                            """)
+                            if get_new_link:
+                                self.driver.execute_script("arguments[0].click();", get_new_link)
+                                print("   [Step 2] Clicked 'Get new code' via JS.")
+                                time.sleep(2)  # Wait for new code to be sent
+                            else:
+                                print("   [Step 2] 'Get new code' link not found via JS.")
                         except Exception as e:
-                            print(f"   [Step 2] Could not find or click 'Get a new one' link: {e}")
+                            print(f"   [Step 2] Error clicking 'Get new code' via JS: {e}")
                     print("   [Step 2] Code verification failed (wrong/rejected/timeout), retrying mail...")
                     continue
                 else:
@@ -1039,7 +1185,7 @@ class InstagramExceptionStep:
         consecutive_failures = 0
         max_consecutive_failures = 20  # If JS fails 20 times in a row, consider timeout
         try:
-            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
         except Exception as e:
             print(f"   [Step 2] Page not ready after 10s: {e}")
         while time.time() < end_time:
@@ -1047,47 +1193,47 @@ class InstagramExceptionStep:
                 
                 
                 #  Check your email or This email will replace all existing contact and login info on your account
-                if self.driver.execute_script("return /check your email|this email will replace all existing contact and login info on your account/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /check your email|this email will replace all existing contact and login info on your account/.test(document.body.innerText.toLowerCase())"):
                     return "CHECKPOINT_MAIL"
                 
-                if self.driver.execute_script("return /change password|new password|create a strong password|change your password to secure your account/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /change password|new password|create a strong password|change your password to secure your account/.test(document.body.innerText.toLowerCase())"):
                     # nếu có new confirm new password thì require change password
-                    if len(self.driver.execute_script("return Array.from(document.querySelectorAll('input[type=\"password\"]'));")) >= 2:
+                    if len(self._safe_execute_script("return Array.from(document.querySelectorAll('input[type=\"password\"]'));", [])) >= 2:
                         return "REQUIRE_PASSWORD_CHANGE"
                     else:
                         return "CHANGE_PASSWORD"
                 
-                if self.driver.execute_script("return /add phone number|send confirmation|log into another account/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /add phone number|send confirmation|log into another account/.test(document.body.innerText.toLowerCase())"):
                     return "SUSPENDED_PHONE"
                 
-                if self.driver.execute_script("return /select your birthday|add your birthday/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /select your birthday|add your birthday/.test(document.body.innerText.toLowerCase())"):
                     return "BIRTHDAY_SCREEN"
                 
-                if self.driver.execute_script("return /allow the use of cookies|posts|save your login info/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /allow the use of cookies|posts|save your login info/.test(document.body.innerText.toLowerCase())"):
                     return "SUCCESS"
                 
-                if self.driver.execute_script("return /suspended|đình chỉ/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /suspended|đình chỉ/.test(document.body.innerText.toLowerCase())"):
                     return "SUSPENDED"
                 # some thing wrong 
-                if self.driver.execute_script("return /something went wrong|đã xảy ra sự cố/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /something went wrong|đã xảy ra sự cố/.test(document.body.innerText.toLowerCase())"):
                     return "SOMETHING_WRONG"
                 
-                if self.driver.execute_script("return /sorry, there was a problem|please try again/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /sorry, there was a problem|please try again/.test(document.body.innerText.toLowerCase())"):
                     return "RETRY_UNUSUAL_LOGIN"
                 
                 # Check for wrong code
-                if self.driver.execute_script("return /code isn't right| mã không đúng|incorrect|wrong code|invalid|the code you entered/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /code isn't right| mã không đúng|incorrect|wrong code|invalid|the code you entered/.test(document.body.innerText.toLowerCase())"):
                     return "WRONG_CODE"
                 
-                if self.driver.execute_script("return /create a password at least 6 characters long|password must be at least 6 characters/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /create a password at least 6 characters long|password must be at least 6 characters/.test(document.body.innerText.toLowerCase())"):
                     return "REQUIRE_PASSWORD_CHANGE"
                 
                 # enter your real birthday
-                if self.driver.execute_script("return /enter your real birthday|nhập ngày sinh thật của bạn/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /enter your real birthday|nhập ngày sinh thật của bạn/.test(document.body.innerText.toLowerCase())"):
                     return "REAL_BIRTHDAY_REQUIRED"
                 
                 # use another profile va log into instagram => dang nhap lai voi data moi 
-                if self.driver.execute_script("return /log into instagram|use another profile/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /log into instagram|use another profile/.test(document.body.innerText.toLowerCase())"):
                     return "RETRY_UNUSUAL_LOGIN"  
                 
                 # URL checks
@@ -1096,20 +1242,20 @@ class InstagramExceptionStep:
                 #     return "SUCCESS"
                 
                 # Element-based checks for logged in state
-                if self.driver.execute_script("return /posts|followers|search|home/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /posts|followers|search|home/.test(document.body.innerText.toLowerCase())"):
                     return "LOGGED_IN_SUCCESS"
                 
-                if self.driver.execute_script("return /save your login info|we can save your login info|lưu thông tin đăng nhập/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /save your login info|we can save your login info|lưu thông tin đăng nhập/.test(document.body.innerText.toLowerCase())"):
                     return "LOGGED_IN_SUCCESS"
                 
                 # save info or not now
-                if self.driver.execute_script("return document.querySelector('button[type=\"submit\"]') !== null && /save info|not now|để sau/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return document.querySelector('button[type=\"submit\"]') !== null && /save info|not now|để sau/.test(document.body.innerText.toLowerCase())"):
                     return "LOGGED_IN_SUCCESS"
                 
                 
                 
                 # Want to subscribe or continue
-                if self.driver.execute_script("return /subscribe/.test(document.body.innerText.toLowerCase())"):
+                if self._safe_execute_script("return /subscribe/.test(document.body.innerText.toLowerCase())"):
                     return "SUBSCRIBE_OR_CONTINUE"
                 
                 consecutive_failures = 0  # Reset on successful check
@@ -1126,10 +1272,18 @@ class InstagramExceptionStep:
             print(f"   [Step 2] TIMEOUT reached. Current URL: {current_url}")
             print(f"   [Step 2] Page body preview: {body_text}...")
             
+            # Capture screenshot for timeout (unknown status)
+            timestamp = int(time.time())
+            screenshot_dir = "screenshots"
+            os.makedirs(screenshot_dir, exist_ok=True)
+            screenshot_path = os.path.join(screenshot_dir, f"timeout_unknown_status_{timestamp}.png")
+            self.driver.save_screenshot(screenshot_path)
+            print(f"   [Step 2] Screenshot saved for timeout unknown status: {screenshot_path}")
+            
             # Additional check: If we're on checkpoint mail screen but regex didn't catch it
             # Check for radio buttons (typical in checkpoint mail)
             try:
-                radios = self.driver.execute_script("return Array.from(document.querySelectorAll('input[type=\"radio\"]')).length;")
+                radios = self._safe_execute_script("return Array.from(document.querySelectorAll('input[type=\"radio\"]')).length;", 0)
                 if radios > 0:
                     print(f"   [Step 2] Found {radios} radio buttons, likely checkpoint mail screen")
                     return "CHECKPOINT_MAIL"
@@ -1138,7 +1292,7 @@ class InstagramExceptionStep:
             
             # Check for code input fields
             try:
-                code_inputs = self.driver.execute_script("return Array.from(document.querySelectorAll('input[type=\"text\"], input[name=\"security_code\"], input[id=\"security_code\"])).length;")
+                code_inputs = self._safe_execute_script("return Array.from(document.querySelectorAll('input[type=\"text\"], input[name=\"security_code\"], input[id=\"security_code\"])).length;", 0)
                 if code_inputs > 0:
                     print(f"   [Step 2] Found {code_inputs} text inputs, likely checkpoint mail screen")
                     return "CHECKPOINT_MAIL"
@@ -1147,7 +1301,7 @@ class InstagramExceptionStep:
             
             # Check for common checkpoint mail keywords that might have been missed
             try:
-                full_body = self.driver.execute_script("return document.body.innerText.toLowerCase();")
+                full_body = self._safe_execute_script("return document.body.innerText.toLowerCase();", "")
                 checkpoint_keywords = ["checkpoint", "verify", "verification", "security code", "confirmation code", "email verification", "mã xác nhận", "xác nhận email"]
                 if any(keyword in full_body for keyword in checkpoint_keywords):
                     print("   [Step 2] Found checkpoint-related keywords, likely checkpoint mail screen")
