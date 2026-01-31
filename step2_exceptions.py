@@ -1103,10 +1103,14 @@ class InstagramExceptionStep:
             new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
-        # Capture screenshot for unknown status
-        self._take_exception_screenshot("STOP_FLOW_UNKNOWN_STATUS", status)
-
-        raise Exception(f"STOP_FLOW_UNKNOWN_STATUS: {status}")
+        # Handle TIMEOUT after max retries - redirect to instagram.com as fallback
+        if status == "TIMEOUT":
+            print("   [Step 2] TIMEOUT persisted after retries. Redirecting to instagram.com as fallback...")
+            self.driver.get("https://www.instagram.com/")
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            time.sleep(2)
+            new_status = self._check_verification_result()
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
     # ==========================================
     # 3. LOGIC XỬ LÝ BIRTHDAY (STRICT VERIFY YEAR)
@@ -1753,13 +1757,13 @@ class InstagramExceptionStep:
                     return "LOGGED_IN_SUCCESS"
                 
                 # save info or not now
-                if self._safe_execute_script("return (document.querySelector('button[type=\"submit\"]') !== null && ('save info' in body_text || 'not now' in body_text || 'để sau' in body_text))", False):
+                if self._safe_execute_script("return (document.querySelector('button[type=\"submit\"]') !== null && (document.body.innerText.toLowerCase().includes('save info') || document.body.innerText.toLowerCase().includes('not now') || document.body.innerText.toLowerCase().includes('để sau')))", False):
                     return "LOGGED_IN_SUCCESS"
                 if 'save your login info' in body_text or 'we can save your login info' in body_text or 'lưu thông tin đăng nhập' in body_text:
                     return "LOGGED_IN_SUCCESS"
                 
                 # save info or not now
-                if self._safe_execute_script("return (document.querySelector('button[type=\"submit\"]') !== null && ('save info' in body_text || 'not now' in body_text || 'để sau' in body_text))", False):
+                if self._safe_execute_script("return (document.querySelector('button[type=\"submit\"]') !== null && (document.body.innerText.toLowerCase().includes('save info') || document.body.innerText.toLowerCase().includes('not now') || document.body.innerText.toLowerCase().includes('để sau')))", False):
                     return "LOGGED_IN_SUCCESS"
                 
                 
@@ -1772,7 +1776,7 @@ class InstagramExceptionStep:
                     return "LOGGED_IN_SUCCESS"
                 
                 # save info or not now
-                if self._safe_execute_script("return (document.querySelector('button[type=\"submit\"]') !== null && ('save info' in body_text || 'not now' in body_text || 'để sau' in body_text))", False):
+                if self._safe_execute_script("return (document.querySelector('button[type=\"submit\"]') !== null && (document.body.innerText.toLowerCase().includes('save info') || document.body.innerText.toLowerCase().includes('not now') || document.body.innerText.toLowerCase().includes('để sau')))", False):
                     return "LOGGED_IN_SUCCESS"
                 
                 
