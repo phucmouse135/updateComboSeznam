@@ -2,11 +2,41 @@
 import time
 import re
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from config_utils import wait_element, wait_and_click, wait_dom_ready
 
 class InstagramPostLoginStep:
     def __init__(self, driver):
         self.driver = driver
+
+    def _robust_click_button(self, selectors, timeout=20, retries=3):
+        """Robust button clicking with multiple selectors and retries."""
+        print(f"   [Step 3] Attempting to click button with {len(selectors)} selectors...")
+        for attempt in range(retries):
+            for selector_type, sel in selectors:
+                try:
+                    if selector_type == "css":
+                        element = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((By.CSS_SELECTOR, sel)))
+                    elif selector_type == "xpath":
+                        element = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((By.XPATH, sel)))
+                    elif selector_type == "js":
+                        result = self.driver.execute_script(sel)
+                        if result:
+                            result.click()
+                            print(f"   [Step 3] Clicked via JS selector")
+                            return True
+                    else:
+                        continue
+                    element.click()
+                    print(f"   [Step 3] Clicked {selector_type}: {sel}")
+                    time.sleep(1)
+                    return True
+                except Exception as e:
+                    print(f"   [Step 3] Failed to click {selector_type}: {sel} - {e}")
+            time.sleep(1)
+        print(f"   [Step 3] Failed to click button after {retries} attempts")
+        return False
 
     def process_post_login(self, username):
         """
@@ -21,11 +51,25 @@ class InstagramPostLoginStep:
         # 1. Xử lý các Popup/Màn hình chắn (Vòng lặp check)
         self._handle_interruptions()
         
-        # 1.5. Đảm bảo đã vào Instagram trước khi navigate
-        self._ensure_instagram_ready()
+        # 1.5. Navigate nhanh đến profile URL để tránh treo ở home
+        print(f"   [Step 3] All popups handled. Navigating directly to profile: {username}")
+        profile_url = f"https://www.instagram.com/{username}/"
+        self.driver.get(profile_url)
+        wait_dom_ready(self.driver, timeout=10)
+        time.sleep(2)  # Short wait for page load
         
-        # 2. Điều hướng vào Profile
-        self._navigate_to_profile(username)
+        # 2. Điều hướng vào Profile (kiểm tra và retry nếu cần)
+        max_navigate_attempts = 3
+        for attempt in range(max_navigate_attempts):
+            if self._navigate_to_profile(username):
+                break
+            if attempt < max_navigate_attempts - 1:
+                print(f"   [Step 3] Navigate failed, redirecting to profile URL and retrying...")
+                self.driver.get(profile_url)
+                wait_dom_ready(self.driver, timeout=10)
+                time.sleep(2)
+        else:
+            raise Exception("Failed to navigate to profile after retries")
         
         # 3. Crawl Dữ liệu
         data = self._crawl_data(username)
@@ -41,6 +85,55 @@ class InstagramPostLoginStep:
         Gộp kiểm tra Popup và kiểm tra Home vào 1 lần gọi JS để tăng tốc độ.
         """
         print("   [Step 3] Starting Aggressive Popup Scan...")
+        
+        # Check URL for cookie choice
+        current_url = self.driver.current_url.lower()
+        if "user_cookie_choice" in current_url:
+            print("   [Step 3] Detected user_cookie_choice in URL, handling cookie popup...")
+            cookie_button_selectors = [
+                'button._a9--._ap36._asz1[tabindex="0"]',
+                'button[class*="_a9--"][class*="_ap36"][class*="_asz1"]:contains("Allow all cookies")',
+                'button:contains("Allow all cookies")',
+                'button[data-testid*="cookie-accept"]',
+                'button[aria-label*="Accept cookies"]',
+                'button[data-cookiebanner="accept_button"]',
+                'button[class*="cookie"]',
+                'button[aria-label*="Accept"]',
+                'button[title*="Accept"]',
+                'button[data-action*="accept"]',
+                'button[data-testid*="accept"]'
+            ]
+            
+            for sel in cookie_button_selectors:
+                cookie_btns = self.driver.find_elements(By.CSS_SELECTOR, sel.replace(':contains', '').replace('button:contains("Allow all cookies")', 'button'))
+                for btn in cookie_btns:
+                    if btn.is_displayed() and "allow all cookies" in btn.text.lower():
+                        try:
+                            btn.click()
+                            print("   [Step 3] Clicked 'Allow all cookies' button")
+                            time.sleep(2)
+                            return  # Exit after handling
+                        except Exception as e:
+                            print(f"   [Step 3] Failed to click cookie button: {e}")
+            return
+        
+        # Check URL for unblock terms
+        if "unblock" in current_url:
+            print("   [Step 3] Detected unblock in URL, handling unblock terms...")
+            # Click accept, agree, continue, next, done buttons
+            buttons = self.driver.find_elements(By.CSS_SELECTOR, "button, div[role='button']")
+            for btn in buttons:
+                if btn.is_displayed():
+                    text = btn.text.lower().strip()
+                    if any(word in text for word in ['accept', 'agree', 'continue', 'next', 'done']):
+                        try:
+                            btn.click()
+                            print(f"   [Step 3] Clicked '{text}' button for unblock")
+                            time.sleep(2)
+                            return  # Exit after handling
+                        except Exception as e:
+                            print(f"   [Step 3] Failed to click {text} button: {e}")
+            return
         
         end_time = time.time() + 120  # Quét trong 120 giây 
         popup_handling_attempts = 0
@@ -130,11 +223,21 @@ class InstagramPostLoginStep:
                     // B. TÌM VÀ CLICK NÚT BẤM CHUNG
                     const elements = document.querySelectorAll('button, div[role="button"]');
                     
-                    // Specific cookie button selector for better reliability
-                    let specificCookieBtn = document.querySelector('div.x1uugd1q[role="button"][tabindex="0"]');
-                    if (specificCookieBtn && specificCookieBtn.innerText.toLowerCase().includes('allow all cookies')) {
-                        specificCookieBtn.click();
-                        return 'COOKIE_CLICKED';
+                    // Enhanced cookie button selectors for better reliability (similar to step 1)
+                    let cookieSelectors = [
+                        'button._a9--._ap36._asz1[tabindex="0"]',
+                        'button[class*="_a9--"][class*="_ap36"][class*="_asz1"]:contains("Allow all cookies")',
+                        'button:contains("Allow all cookies")'
+                    ];
+                    
+                    for (let sel of cookieSelectors) {
+                        let cookieBtns = document.querySelectorAll(sel);
+                        for (let btn of cookieBtns) {
+                            if (btn.offsetParent !== null) {
+                                btn.click();
+                                return 'COOKIE_CLICKED';
+                            }
+                        }
                     }
                     
                     for (let el of elements) {
@@ -167,7 +270,7 @@ class InstagramPostLoginStep:
                 if action_result == 'HOME_SCREEN_CLEAR':
                     print("   [Step 3] Home Screen detected. Verifying no remaining popups...")
                     # Double-check that we're actually ready to proceed
-                    time.sleep(2)  # Wait a bit more
+                    time.sleep(1.5)  # Reduced from 2 for faster verification
                     try:
                         # Check again for any remaining dialogs or overlays
                         final_check = self.driver.execute_script("""
@@ -207,15 +310,15 @@ class InstagramPostLoginStep:
                     print(f"   [Step 3] Action triggered: {action_result}")
                     
                     if action_result == 'AGREE_CLICKED':
-                        time.sleep(3); self._check_crash_recovery()
+                        time.sleep(2); self._check_crash_recovery()  # Reduced from 3
                     elif action_result == 'OPTION_SELECTED':
                         print("   [Step 3] Option selected. Waiting for Next button...")
-                        time.sleep(1)
+                        time.sleep(0.5)  # Reduced from 1
                     elif action_result == 'AGE_CHECK_CLICKED': 
                         print("   [Step 3] Handled Age Verification (18+). Waiting...")
-                        time.sleep(3)
+                        time.sleep(2)  # Reduced from 3
                     else:
-                        time.sleep(1.5)
+                        time.sleep(1.0)  # Reduced from 1.5
                     continue
 
                 # ---------------------------------------------------------
@@ -235,7 +338,80 @@ class InstagramPostLoginStep:
                         time.sleep(4); continue
                 except: pass
 
-                time.sleep(0.5)
+                # --------------------------------------------------------- 
+                # Additional popup handling for specific cases (similar to step 2)
+                # ---------------------------------------------------------
+                try:
+                    body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+                    
+                    # CONFIRM_TRUSTED_DEVICE
+                    if "confirm trusted device" in body_text or "xác nhận thiết bị đáng tin cậy" in body_text:
+                        print("   [Step 3] Handling Confirm Trusted Device...")
+                        success = self._robust_click_button([
+                            ("js", """
+                                var buttons = document.querySelectorAll('button, [role=\"button\"], div[role=\"button\"]');
+                                for (var i = 0; i < buttons.length; i++) {
+                                    var text = buttons[i].textContent.trim().toLowerCase();
+                                    if (text.includes('close') || text.includes('x') || text.includes('cancel') ||
+                                        text.includes('not now') || text.includes('skip') || text.includes('dismiss')) {
+                                        return buttons[i];
+                                    }
+                                }
+                                return null;
+                            """),
+                            ("css", "div.x1i10hfl.xjqpnuy.xc5r6h4.xqeqjp1.x1phubyo.x972fbf.x10w94by.x1qhh985.x14e42zd.xdl72j9.x2lah0s.x3ct3a4.xdj266r.x14z9mp.xat24cr.x1lziwak.x2lwn1j.xeuugli.xexx8yu.x18d9i69.x1hl2dhg.xggy1nq.x1ja2u2z.x1t137rt.x1q0g3np.x1lku1pv.x1a2a7pz.x6s0dn4.xjyslct.x1obq294.x5a5i1n.xde0f50.x15x8krk.x1ejq31n.x18oe1m7.x1sy0etr.xstzfhl.x9f619.x1ypdohk.x1f6kntn.xwhw2v2.x10w6t97.xl56j7k.x17ydfre.xf7dkkf.xv54qhq.x1n2onr6.x2b8uid.xlyipyv.x87ps6o.x5c86q.x18br7mf.x1i0vuye.xh8yej3.x1aavi5t.x1h6iz8e.xixcex4.xk4oym4.xl3ioum.x3nfvp2"),
+                            ("css", "div[role='button'][tabindex='0']"),
+                            ("css", "div[role='button']"),
+                            ("xpath", "//button[contains(text(), 'Close')]"),
+                            ("xpath", "//button[contains(text(), 'Cancel')]"),
+                            ("xpath", "//button[contains(text(), 'Not now')]"),
+                        ])
+                        if success:
+                            print("   [Step 3] Successfully handled Confirm Trusted Device")
+                            time.sleep(2)
+                            continue
+                    
+                    # SUBSCRIBE_OR_CONTINUE
+                    if "subscribe or continue" in body_text or "đăng ký hoặc tiếp tục" in body_text:
+                        print("   [Step 3] Handling Subscribe Or Continue...")
+                        self._robust_click_button([("xpath", "(//input[@type='radio'])[2]"), ("css", "input[type='radio']:nth-of-type(2)")])
+                        time.sleep(1)
+                        self._robust_click_button([
+                            ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
+                            ("css", "button[type='submit']"),
+                        ])
+                        time.sleep(2)
+                        continue
+                    
+                    # REVIEW_AGREE_DATA_CHANGES
+                    if "review and agree" in body_text or "xem xét và đồng ý" in body_text:
+                        print("   [Step 3] Handling Review and Agree Data Changes...")
+                        success = self._robust_click_button([
+                            ("xpath", "//div[@role='button' and contains(text(), 'Next')]"),
+                            ("css", "div[role='button'][tabindex='0']"),
+                        ])
+                        if success:
+                            print("   [Step 3] Successfully clicked Next on data changes popup")
+                            time.sleep(2)
+                            continue
+                    
+                    # COOKIE_CONSENT_POPUP (additional fallback)
+                    if "allow all cookies" in body_text or "cho phép tất cả cookie" in body_text:
+                        print("   [Step 3] Handling Cookie Consent Popup (fallback)...")
+                        success = self._robust_click_button([
+                            ("css", "button._a9--._ap36._asz1[tabindex='0']"),
+                            ("xpath", "//button[contains(text(), 'Allow all cookies')]"),
+                            ("css", "div.x1uugd1q[role='button'][tabindex='0']"),
+                        ], timeout=10, retries=2)
+                        if success:
+                            print("   [Step 3] Successfully clicked Allow all cookies (fallback)")
+                            time.sleep(2)
+                            continue
+                    
+                except Exception as e:
+                    print(f"   [Step 3] Error in additional popup handling: {e}")
+
+                time.sleep(0.3)  # Reduced from 0.5 for faster scanning
 
                 # Check for fail statuses
                 try:

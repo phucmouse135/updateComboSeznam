@@ -1,10 +1,11 @@
-# config_utils.py
-import time
+from selenium.webdriver.common.action_chains import ActionChains
 import threading
+import time
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+
 
 _CHROMEDRIVER_PATH = None
 _CHROMEDRIVER_LOCK = threading.Lock()
@@ -162,6 +163,8 @@ def wait_and_click(driver, by, value, timeout=10, poll=0.1):
     while time.time() < end_time:
         try:
             el = driver.find_element(by, value)
+            # Scroll element into view to ensure it's not obscured
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", el)
             # Chờ element thực sự hiển thị và có thể tương tác
             for _ in range(10):
                 if el.is_displayed() and el.is_enabled():
@@ -169,7 +172,12 @@ def wait_and_click(driver, by, value, timeout=10, poll=0.1):
                         el.click()
                         return True
                     except Exception:
-                        pass
+                        # Try ActionChains move and click
+                        try:
+                            ActionChains(driver).move_to_element(el).click().perform()
+                            return True
+                        except Exception:
+                            pass
                 time.sleep(0.1)
             # Nếu click thường lỗi, thử JS Click ngay tại đây để cứu vãn
             try:

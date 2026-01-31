@@ -54,10 +54,20 @@ class InstagramLoginStep:
 
         # --- GIAI ĐOẠN 1: CLICK ALLOW ALL COOKIES POPUP ---
         print("   [Step 1] Checking for 'Allow all cookies' popup...")
+        # Maximize window to ensure buttons are not obscured
+        # self.driver.maximize_window()
         cookie_button_selectors = [
             (By.CSS_SELECTOR, "button._a9--._ap36._asz1[tabindex='0']"),
             (By.XPATH, "//button[contains(@class, '_a9--') and contains(@class, '_ap36') and contains(@class, '_asz1') and contains(text(), 'Allow all cookies')]"),
-            (By.XPATH, "//button[contains(text(), 'Allow all cookies')]")
+            (By.XPATH, "//button[contains(text(), 'Allow all cookies')]"),
+            (By.CSS_SELECTOR, "button[data-testid*='cookie-accept']"),
+            (By.CSS_SELECTOR, "button[aria-label*='Accept cookies']"),
+            (By.CSS_SELECTOR, "button[data-cookiebanner='accept_button']"),
+            (By.CSS_SELECTOR, "button[class*='cookie']"),
+            (By.XPATH, "//button[contains(@aria-label, 'Accept')]"),
+            (By.XPATH, "//button[contains(@title, 'Accept')]"),
+            (By.CSS_SELECTOR, "button[data-action*='accept']"),
+            (By.CSS_SELECTOR, "button[data-testid*='accept']")
         ]
 
         for by, selector in cookie_button_selectors:
@@ -167,6 +177,12 @@ class InstagramLoginStep:
         """
         try:
             wait_dom_ready(self.driver, timeout=5)
+            
+            # Check URL for cookie choice
+            current_url = self.driver.current_url.lower()
+            if "user_cookie_choice" in current_url:
+                return "COOKIE_CONSENT_POPUP"
+            
             try:
                 body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
             except Exception as e:
@@ -184,6 +200,11 @@ class InstagramLoginStep:
             
             if "choose a way to recover" in body_text:
                 return "RECOVERY_CHALLENGE"
+            
+            # Check for no internet connection
+            if "we couldn't connect to instagram" in body_text and "make sure you're connected to the internet" in body_text:
+                return "NOT_CONNECT_INSTAGRAM"
+            
             # 1. Các trường hợp Exception / Checkpoint
             if "enter the 6-digit code" in body_text and ("email" in body_text or "mail" in body_text):
                 return "CHECKPOINT_MAIL"
