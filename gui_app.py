@@ -199,15 +199,22 @@ class AutomationGUI:
     # --- PROCESS LOGIC (ĐÃ CẬP NHẬT WINDOW RECT) ---
     def process_single_account(self, item_id, window_rect=None):
         import time
+        import shutil
         start_time = time.time()
         elapsed = 0  # Initialize elapsed time
         values = list(self.tree.item(item_id)['values'])
         acc = {
-            "uid": values[0], "linked_mail": values[1], "username": values[2],
+            "uid": str(values[0]), "linked_mail": values[1], "username": values[2],
             "password": values[3], "gmx_user": values[5], "gmx_pass": values[6]
         }
         self.msg_queue.put(("UPDATE_STATUS", (item_id, "", "running")))
         
+        # Create unique user data directory for this thread/account
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        user_data_dir = os.path.join(current_dir, "temp_profiles", f"profile_{acc['uid']}_{int(time.time())}")
+        if not os.path.exists(user_data_dir):
+            os.makedirs(user_data_dir, exist_ok=True)
+
         # Single driver creation with retry on creation failure only
         max_driver_retries = 3
         driver = None
@@ -215,7 +222,7 @@ class AutomationGUI:
         for driver_attempt in range(max_driver_retries):
             try:
                 print(f"   [Driver] Attempt {driver_attempt + 1}/{max_driver_retries} to create Chrome driver...")
-                driver = get_driver(headless=self.headless_var.get(), window_rect=window_rect)
+                driver = get_driver(headless=self.headless_var.get(), window_rect=window_rect, user_data_dir=user_data_dir)
                 print("   [Driver] Chrome driver created successfully")
                 
                 # Check for data: URL error and redirect
@@ -389,8 +396,19 @@ class AutomationGUI:
         finally:
             print(f"[TIME] Case {acc['username']} finished in {elapsed:.2f} seconds.")
             if driver: 
-                try: driver.quit()
-                except: pass
+                try: 
+                    driver.quit()
+                except: 
+                    pass
+            
+            # Clean up user data directory
+            try:
+                if os.path.exists(user_data_dir):
+                    time.sleep(1) # Give Chrome a moment to fully release locks
+                    shutil.rmtree(user_data_dir, ignore_errors=True)
+                    print(f"   [Cleanup] Removed temporary profile: {user_data_dir}")
+            except Exception as e:
+                print(f"   [Cleanup] Error removing {user_data_dir}: {e}")
 
     # --- THREAD MANAGER (ĐÃ CẬP NHẬT SLOT MANAGEMENT) ---
     def thread_manager(self, items, n_threads):

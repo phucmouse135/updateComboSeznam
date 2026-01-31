@@ -29,11 +29,14 @@ def _get_chromedriver_path():
 def ensure_chromedriver():
     return _get_chromedriver_path()
 
-def get_driver(headless=True , window_rect=None):
+def get_driver(headless=True , window_rect=None, user_data_dir=None):
     options = Options()
     if headless:
         options.add_argument("--headless=new") 
         
+    if user_data_dir:
+        options.add_argument(f"--user-data-dir={user_data_dir}")
+
     if not headless and window_rect:
         x, y, w, h = window_rect
         # Set vị trí và kích thước cửa sổ
