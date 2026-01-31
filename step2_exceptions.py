@@ -761,6 +761,7 @@ class InstagramExceptionStep:
                 if any(k in b.text.lower() for k in keywords) and b.is_displayed():
                     if wait_and_click(self.driver, By.TAG_NAME, "button", timeout=20):
                         clicked = True
+                        print(f"   [Step 2] Clicked button: {b.text}")
                         break
                 if time.time() - start_time > TIMEOUT:
                     raise Exception("TIMEOUT_CONTINUE_UNUSUAL_LOGIN: Button click")
@@ -770,9 +771,28 @@ class InstagramExceptionStep:
                 divs = self.driver.execute_script("return Array.from(document.querySelectorAll('div[role=\"button\"]'));")
                 for d in divs:
                     if any(k in d.text.lower() for k in keywords) and d.is_displayed():
-                        wait_and_click(self.driver, By.XPATH, "//div[@role='button']", timeout=20); clicked = True; break
+                        wait_and_click(self.driver, By.XPATH, "//div[@role='button']", timeout=20)
+                        clicked = True
+                        print(f"   [Step 2] Clicked div button: {d.text}")
+                        break
                     if time.time() - start_time > TIMEOUT:
                         raise Exception("TIMEOUT_CONTINUE_UNUSUAL_LOGIN: Fallback button click")
+
+            if not clicked:
+                print("   [Step 2] No Continue/This Was Me button found. Trying alternative approaches...")
+                # Try clicking any visible button as last resort
+                try:
+                    all_buttons = self.driver.execute_script("""
+                        return Array.from(document.querySelectorAll('button, div[role="button"], input[type="submit"]'))
+                        .filter(el => el.offsetParent !== null && el.textContent.trim());
+                    """)
+                    if all_buttons:
+                        # Click the first visible button
+                        self.driver.execute_script("arguments[0].click();", all_buttons[0])
+                        clicked = True
+                        print(f"   [Step 2] Clicked fallback button: {all_buttons[0].textContent}")
+                except Exception as e:
+                    print(f"   [Step 2] Fallback button click failed: {e}")
 
             time.sleep(5) # Chờ load sau khi click
             if time.time() - start_time > TIMEOUT:
@@ -784,9 +804,36 @@ class InstagramExceptionStep:
             time.sleep(2)
             new_status = self._check_verification_result()
             print(f"   [Step 2] Status after Continue: {new_status}")
-            # Anti-hang: If status unchanged, check with timeout
-            if new_status == status:
-                new_status = self._check_status_change_with_timeout(status, 15)
+            
+            # Anti-hang: If status unchanged or still unusual login, check with timeout and more verification
+            if new_status == status or "UNUSUAL" in new_status:
+                print("   [Step 2] Status indicates popup may still be present. Waiting longer...")
+                time.sleep(5)
+                new_status = self._check_verification_result()
+                print(f"   [Step 2] Status after additional wait: {new_status}")
+                
+                # If still not resolved, try to force close any modal/popups
+                if new_status == status or "UNUSUAL" in new_status:
+                    print("   [Step 2] Attempting to force close popups...")
+                    try:
+                        self.driver.execute_script("""
+                            // Try to close any modals/dialogs
+                            var dialogs = document.querySelectorAll('div[role="dialog"]');
+                            for (var dialog of dialogs) {
+                                var closeBtn = dialog.querySelector('button, [role="button"]');
+                                if (closeBtn) closeBtn.click();
+                            }
+                            
+                            // Try ESC key
+                            var event = new KeyboardEvent('keydown', {key: 'Escape'});
+                            document.dispatchEvent(event);
+                        """)
+                        time.sleep(3)
+                        new_status = self._check_verification_result()
+                        print(f"   [Step 2] Status after force close: {new_status}")
+                    except Exception as e:
+                        print(f"   [Step 2] Force close failed: {e}")
+            
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
         if status == "REQUIRE_PASSWORD_CHANGE":
@@ -1658,10 +1705,37 @@ class InstagramExceptionStep:
                 # if "instagram.com/" in current_url and "challenge" not in current_url:
                 #     return "SUCCESS"
                 
-                # Element-based checks for logged in state
-                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('posts') || document.body.innerText.toLowerCase().includes('followers') || document.body.innerText.toLowerCase().includes('search') || document.body.innerText.toLowerCase().includes('home')"):
+                # Element-based checks for logged in state - BE MORE CAUTIOUS
+                # Check for home screen indicators but also verify no blocking popups
+                home_indicators = self._safe_execute_script("return document.body.innerText.toLowerCase().includes('posts') || document.body.innerText.toLowerCase().includes('followers') || document.body.innerText.toLowerCase().includes('search') || document.body.innerText.toLowerCase().includes('home')")
+                
+                if home_indicators:
+                    # Additional check: ensure no modal dialogs are blocking the interface
+                    has_blocking_popups = self._safe_execute_script("""
+                        var dialogs = document.querySelectorAll('div[role="dialog"], div[role="alertdialog"]');
+                        var hasVisibleDialog = Array.from(dialogs).some(d => d.offsetParent !== null);
+                        
+                        // Also check for overlays that might block interaction
+                        var overlays = document.querySelectorAll('div[aria-hidden="false"], div[data-testid*="modal"], div[style*="z-index"]');
+                        var hasVisibleOverlay = Array.from(overlays).some(o => {
+                            var style = window.getComputedStyle(o);
+                            return style.display !== 'none' && style.visibility !== 'hidden' && o.offsetParent !== null;
+                        });
+                        
+                        return hasVisibleDialog || hasVisibleOverlay;
+                    """)
+                    
+                    if not has_blocking_popups:
+                        return "LOGGED_IN_SUCCESS"
+                    else:
+                        print("   [Step 2] Home screen detected but blocking popups/overlays present")
+                
+                if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('save your login info') || document.body.innerText.toLowerCase().includes('we can save your login info') || document.body.innerText.toLowerCase().includes('lưu thông tin đăng nhập')"):
                     return "LOGGED_IN_SUCCESS"
                 
+                # save info or not now
+                if self._safe_execute_script("return (document.querySelector('button[type=\"submit\"]') !== null && (document.body.innerText.toLowerCase().includes('save info') || document.body.innerText.toLowerCase().includes('not now') || document.body.innerText.toLowerCase().includes('để sau')))"):
+                    return "LOGGED_IN_SUCCESS"
                 if self._safe_execute_script("return document.body.innerText.toLowerCase().includes('save your login info') || document.body.innerText.toLowerCase().includes('we can save your login info') || document.body.innerText.toLowerCase().includes('lưu thông tin đăng nhập')"):
                     return "LOGGED_IN_SUCCESS"
                 

@@ -43,8 +43,10 @@ class InstagramPostLoginStep:
         print("   [Step 3] Starting Aggressive Popup Scan...")
         
         end_time = time.time() + 120  # Quét trong 120 giây 
+        popup_handling_attempts = 0
+        max_popup_attempts = 10  # Prevent infinite loops
         
-        while time.time() < end_time:
+        while time.time() < end_time and popup_handling_attempts < max_popup_attempts: 
             try:
                 # ---------------------------------------------------------
                 # 1. QUÉT TRẠNG THÁI (POPUP + HOME) BẰNG JS
@@ -161,22 +163,36 @@ class InstagramPostLoginStep:
                     try:
                         # Check again for any remaining dialogs or overlays
                         final_check = self.driver.execute_script("""
-                            var dialogs = document.querySelectorAll("div[role='dialog']");
-                            var hasVisibleDialog = Array.from(dialogs).some(d => d.offsetParent !== null);
-                            var overlays = document.querySelectorAll("div[role='presentation']");
-                            var hasVisibleOverlay = Array.from(overlays).some(o => o.offsetParent !== null && o.innerText.trim());
+                            var dialogs = document.querySelectorAll('div[role="dialog"], div[role="alertdialog"], div[aria-modal="true"]');
+                            var hasVisibleDialog = Array.from(dialogs).some(d => d.offsetParent !== null && d.getAttribute('aria-hidden') !== 'true');
                             
-                            return !hasVisibleDialog && !hasVisibleOverlay;
+                            // Check for overlays that might block interaction
+                            var overlays = document.querySelectorAll('div[aria-hidden="false"], div[data-testid*="modal"], div[style*="z-index"]');
+                            var hasVisibleOverlay = Array.from(overlays).some(o => {
+                                var style = window.getComputedStyle(o);
+                                return style.display !== 'none' && style.visibility !== 'hidden' && o.offsetParent !== null;
+                            });
+                            
+                            // Check for unusual login popups specifically
+                            var unusualLogin = document.body.innerText.toLowerCase().includes('we detected an unusual login attempt') ||
+                                              document.body.innerText.toLowerCase().includes('continue') ||
+                                              document.body.innerText.toLowerCase().includes('this was me');
+                            
+                            return !(hasVisibleDialog || hasVisibleOverlay || unusualLogin);
                         """)
                         
                         if final_check:
                             print("   [Step 3] Home Screen Clear confirmed. Done.")
                             break  # [EXIT LOOP] Đã thành công
                         else:
-                            print("   [Step 3] Still have popups/overlays, continuing...")
+                            print("   [Step 3] Still have popups/overlays/unusual login elements, continuing...")
+                            # Try to handle any remaining unusual login popups
+                            self._handle_remaining_popups()
+                            popup_handling_attempts += 1
                             continue
-                    except:
-                        print("   [Step 3] Could not verify home screen, continuing...")
+                    except Exception as e:
+                        print(f"   [Step 3] Error in final verification: {e}")
+                        popup_handling_attempts += 1
                         continue
 
                 if action_result:
@@ -214,13 +230,59 @@ class InstagramPostLoginStep:
                 time.sleep(0.5)
 
             except Exception as e:
+                popup_handling_attempts += 1
                 time.sleep(1)
+        
+        # Check if we exceeded max popup handling attempts
+        if popup_handling_attempts >= max_popup_attempts:
+            print(f"   [Step 3] Exceeded max popup handling attempts ({max_popup_attempts}). Proceeding anyway.")
+            return  # Exit the method to continue with navigation
 
     def _check_crash_recovery(self):
         """Hàm phụ trợ check crash nhanh sau khi click Agree."""
         try:
             wait_dom_ready(self.driver, timeout=5)
         except: pass
+
+    def _handle_remaining_popups(self):
+        """Handle any remaining unusual login or other popups that Step 2 might have missed."""
+        print("   [Step 3] Attempting to handle remaining popups...")
+        try:
+            # Try to click Continue or This Was Me buttons
+            continue_buttons = self.driver.execute_script("""
+                var buttons = document.querySelectorAll('button, div[role="button"]');
+                var found = [];
+                for (var btn of buttons) {
+                    var text = btn.textContent.toLowerCase().trim();
+                    if (text.includes('continue') || text.includes('tiếp tục') || 
+                        text.includes('this was me') || text.includes('đây là tôi')) {
+                        found.push(btn);
+                    }
+                }
+                return found.slice(0, 3); // Return up to 3 buttons
+            """)
+            
+            for btn in continue_buttons:
+                try:
+                    btn.click()
+                    print("   [Step 3] Clicked remaining popup button")
+                    time.sleep(3)
+                    return True
+                except:
+                    continue
+                    
+            # Try ESC key as fallback
+            self.driver.execute_script("""
+                var event = new KeyboardEvent('keydown', {key: 'Escape'});
+                document.dispatchEvent(event);
+            """)
+            print("   [Step 3] Sent ESC key to close popup")
+            time.sleep(2)
+            
+        except Exception as e:
+            print(f"   [Step 3] Error handling remaining popups: {e}")
+        
+        return False
 
     def _ensure_instagram_ready(self):
         """Đảm bảo đã vào Instagram và sẵn sàng để navigate."""
