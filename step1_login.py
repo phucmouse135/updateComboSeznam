@@ -194,6 +194,10 @@ class InstagramLoginStep:
             if "enter the 6-digit code we sent to the number ending in" in body_text:
                 return "CHECKPOINT_PHONE"
             
+            # enter your email
+            if "enter your email" in body_text or "please enter your email address to continue" in body_text:
+                return "DISABLE_ACCOUNT"
+            
             # Log in on another device to continue
             if "log in on another device to continue" in body_text or "đăng nhập trên thiết bị khác để tiếp tục" in body_text:
                 return "LOG_IN_ANOTHER_DEVICE"

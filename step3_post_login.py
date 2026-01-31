@@ -21,6 +21,9 @@ class InstagramPostLoginStep:
         # 1. Xử lý các Popup/Màn hình chắn (Vòng lặp check)
         self._handle_interruptions()
         
+        # 1.5. Đảm bảo đã vào Instagram trước khi navigate
+        self._ensure_instagram_ready()
+        
         # 2. Điều hướng vào Profile
         self._navigate_to_profile(username)
         
@@ -152,8 +155,29 @@ class InstagramPostLoginStep:
                 """)
 
                 if action_result == 'HOME_SCREEN_CLEAR':
-                    print("   [Step 3] Home Screen Clear. Done.")
-                    break # [EXIT LOOP] Đã thành công
+                    print("   [Step 3] Home Screen detected. Verifying no remaining popups...")
+                    # Double-check that we're actually ready to proceed
+                    time.sleep(2)  # Wait a bit more
+                    try:
+                        # Check again for any remaining dialogs or overlays
+                        final_check = self.driver.execute_script("""
+                            var dialogs = document.querySelectorAll("div[role='dialog']");
+                            var hasVisibleDialog = Array.from(dialogs).some(d => d.offsetParent !== null);
+                            var overlays = document.querySelectorAll("div[role='presentation']");
+                            var hasVisibleOverlay = Array.from(overlays).some(o => o.offsetParent !== null && o.innerText.trim());
+                            
+                            return !hasVisibleDialog && !hasVisibleOverlay;
+                        """)
+                        
+                        if final_check:
+                            print("   [Step 3] Home Screen Clear confirmed. Done.")
+                            break  # [EXIT LOOP] Đã thành công
+                        else:
+                            print("   [Step 3] Still have popups/overlays, continuing...")
+                            continue
+                    except:
+                        print("   [Step 3] Could not verify home screen, continuing...")
+                        continue
 
                 if action_result:
                     print(f"   [Step 3] Action triggered: {action_result}")
@@ -198,28 +222,136 @@ class InstagramPostLoginStep:
             wait_dom_ready(self.driver, timeout=5)
         except: pass
 
+    def _ensure_instagram_ready(self):
+        """Đảm bảo đã vào Instagram và sẵn sàng để navigate."""
+        print("   [Step 3] Ensuring Instagram is ready...")
+        
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                current_url = self.driver.current_url
+                print(f"   [Step 3] Current URL: {current_url}")
+                
+                # Check if we're on Instagram domain
+                if "instagram.com" not in current_url:
+                    print("   [Step 3] Not on Instagram domain, navigating to home...")
+                    self.driver.get("https://www.instagram.com/")
+                    wait_dom_ready(self.driver, timeout=10)
+                    time.sleep(3)
+                    continue
+                
+                # Check for basic Instagram elements
+                body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+                
+                # If we see login form, something went wrong
+                if "log in" in body_text or "username" in body_text or "password" in body_text:
+                    print("   [Step 3] Detected login form, something went wrong. Refreshing...")
+                    self.driver.refresh()
+                    wait_dom_ready(self.driver, timeout=10)
+                    time.sleep(3)
+                    continue
+                
+                # Check for common Instagram elements
+                instagram_indicators = [
+                    "home", "search", "explore", "reels", "messages", 
+                    "notifications", "create", "profile", "posts", "followers"
+                ]
+                
+                found_indicators = sum(1 for indicator in instagram_indicators if indicator in body_text)
+                
+                if found_indicators >= 3:
+                    print(f"   [Step 3] Instagram ready (found {found_indicators} indicators)")
+                    return True
+                else:
+                    print(f"   [Step 3] Instagram not ready yet (found {found_indicators} indicators), waiting...")
+                    time.sleep(2)
+                    
+            except Exception as e:
+                print(f"   [Step 3] Error checking Instagram readiness: {e}")
+                time.sleep(2)
+        
+        print("   [Step 3] Warning: Could not confirm Instagram readiness, proceeding anyway")
+        return False
+
     def _navigate_to_profile(self, username):
         """Truy cập thẳng URL profile để đảm bảo vào đúng trang."""
-        print("   [Step 3] Navigating to Profile...")
+        print(f"   [Step 3] Navigating to Profile: {username}...")
         
         # Luôn truy cập thẳng URL để tránh lỗi click icon
-        self.driver.get(f"https://www.instagram.com/{username}/")
+        profile_url = f"https://www.instagram.com/{username}/"
+        self.driver.get(profile_url)
         
-        wait_dom_ready(self.driver, timeout=10)
+        wait_dom_ready(self.driver, timeout=15)
+        time.sleep(3)  # Wait for dynamic content
         
         # Chờ Username xuất hiện (Confirm đã vào đúng trang), retry nếu cần
-        for attempt in range(3):
-            if wait_element(self.driver, By.XPATH, f"//*[contains(text(), '{username}')]", timeout=5):
-                print("   [Step 3] Profile page confirmed.")
-                return
-            print(f"   [Step 3] Username not found, attempt {attempt+1}/3. Refreshing...")
-            self.driver.refresh()
-            wait_dom_ready(self.driver, timeout=5)
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            try:
+                current_url = self.driver.current_url
+                print(f"   [Step 3] Attempt {attempt+1}/{max_attempts} - Current URL: {current_url}")
+                
+                # Check if we're on the correct profile URL
+                if username.lower() not in current_url.lower():
+                    print(f"   [Step 3] URL mismatch, expected username '{username}' in URL")
+                    self.driver.get(profile_url)
+                    wait_dom_ready(self.driver, timeout=10)
+                    time.sleep(2)
+                    continue
+                
+                # Check for profile-specific elements
+                profile_indicators = [
+                    f"@{username}", username, "posts", "followers", "following"
+                ]
+                
+                body_text = self.driver.find_element(By.TAG_NAME, "body").text
+                
+                # Check if profile loaded
+                username_found = any(indicator in body_text for indicator in profile_indicators)
+                
+                if username_found:
+                    print(f"   [Step 3] Profile page confirmed for {username}")
+                    
+                    # Additional check: look for profile picture or bio area
+                    try:
+                        profile_elements = self.driver.find_elements(By.CSS_SELECTOR, 
+                            "img[alt*='" + username + "'], div[data-testid='user-biography'], header section")
+                        if profile_elements:
+                            print("   [Step 3] Profile elements found, navigation successful")
+                            return True
+                    except:
+                        pass
+                    
+                    return True
+                
+                # Check for error pages
+                if "sorry, this page isn't available" in body_text.lower():
+                    print(f"   [Step 3] Profile not found or private: {username}")
+                    return False
+                
+                if "this account is private" in body_text.lower():
+                    print(f"   [Step 3] Private account: {username}")
+                    return False
+                
+                print(f"   [Step 3] Profile not loaded yet, attempt {attempt+1}/{max_attempts}")
+                time.sleep(2)
+                
+            except Exception as e:
+                print(f"   [Step 3] Error checking profile: {e}")
+                time.sleep(2)
         
-        print("   [Step 3] Warning: Could not confirm profile page, proceeding anyway.")
+        print(f"   [Step 3] Warning: Could not confirm profile page for {username}, proceeding anyway")
+        return False
 
     def _crawl_data(self, username):
         print(f"   [Step 3] Crawling data for {username}...")
+        
+        # Verify we're on the correct profile page before crawling
+        current_url = self.driver.current_url
+        if username.lower() not in current_url.lower():
+            print(f"   [Step 3] ERROR: Not on profile page for {username}. Current URL: {current_url}")
+            return {"posts": "0", "followers": "0", "following": "0"}
+        
         final_data = {"posts": "0", "followers": "0", "following": "0"}
         
         # Scroll down to load stats
