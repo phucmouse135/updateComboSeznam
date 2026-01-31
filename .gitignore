@@ -6,3 +6,4 @@ venv/
 success.txt
 fail.txt
 2fa.txt
+temp_profiles/

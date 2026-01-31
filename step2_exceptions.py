@@ -533,6 +533,12 @@ class InstagramExceptionStep:
             self._take_exception_screenshot("STOP_FLOW_CRASH", "Browser Closed")
             raise Exception("STOP_FLOW_CRASH: Browser Closed")
 
+        # GET_HELP_LOG_IN
+        if status == "GET_HELP_LOG_IN":
+            # fail 
+            print("   [Step 2] Detected 'Get Help Logging In' - Failing out of flow.")
+            self._take_exception_screenshot("GET_HELP_LOG_IN_DETECTED", "Get Help Logging In screen detected")
+            raise Exception("GET_HELP_LOG_IN_DETECTED")
 
         success_statuses = [
             "LOGGED_IN_SUCCESS", "COOKIE_CONSENT", "TERMS_AGREEMENT", 
@@ -541,6 +547,7 @@ class InstagramExceptionStep:
         if status in success_statuses:
             print(f"   [Step 2] Success status reached: {status}")
             return status
+        
         
         # DATA_PROCESSING_FOR_ADS
         if status == "DATA_PROCESSING_FOR_ADS":
@@ -629,6 +636,7 @@ class InstagramExceptionStep:
                     new_status = self._check_status_change_with_timeout(status, 15)
             
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+        
         
         
         # SUBSCRIBE_OR_CONTINUE
@@ -1721,6 +1729,10 @@ class InstagramExceptionStep:
                 # Check URL for cookie choice
                 if "user_cookie_choice" in current_url:
                     return "COOKIE_CONSENT_POPUP"
+                
+                # you need to request help logging in To secure your account, you need to request help logging in
+                if "you need to request help logging in" in body_text or "to secure your account, you need to request help logging in" in body_text:
+                    return "GET_HELP_LOG_IN"
                 
                 
                 #  Check your email or This email will replace all existing contact and login info on your account

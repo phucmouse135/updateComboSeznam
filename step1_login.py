@@ -129,8 +129,15 @@ class InstagramLoginStep:
             time.sleep(1)
         else:
             return "FAIL_LOGIN_BUTTON_TIMEOUT"
-        wait_dom_ready(self.driver , timeout=20)
-        time.sleep(4) # Chờ thêm vài giây để trang load sau khi nhấn Login
+        wait_dom_ready(self.driver , timeout=30)
+        # Chờ trang web load xong sau khi nhấn Login (đợi URL thay đổi)
+        initial_url = self.driver.current_url
+        start_time = time.time()
+        while time.time() - start_time < 30:
+            if self.driver.current_url != initial_url:
+                wait_dom_ready(self.driver, timeout=10)
+                break
+            time.sleep(1)
         status = self._wait_for_login_result(timeout=120)
         
         # Handle cookie consent popup after login if detected
@@ -144,31 +151,12 @@ class InstagramLoginStep:
             else:
                 print("   [Step 1] 'Allow all cookies' button not found after login")
             
-            wait_dom_ready(self.driver, timeout=20)
+            wait_dom_ready(self.driver, timeout=30)
             status = self._detect_initial_status()
             print(f"   [Step 1] Status after cookie handling: {status}")
         
         print(f"   [Step 1] Login result detected: {status}")
         return status
-
-    # def _wait_for_login_result(self, timeout=120):
-    #     """
-    #     Vòng lặp kiểm tra trạng thái liên tục.
-    #     Trả về kết quả ngay khi phát hiện trạng thái cụ thể.
-    #     """
-    #     print("   [Step 1] Waiting for login result...")
-    #     end_time = time.time() + timeout
-        
-    #     while time.time() < end_time:
-    #         status = self._detect_initial_status()
-            
-    #         # Nếu status đã rõ ràng (không phải Unknown/Retry) -> Return ngay
-    #         if status not in ["LOGGED_IN_UNKNOWN_STATE", "LOGIN_FAILED_RETRY"]:
-    #             return status
-            
-    #         time.sleep(0.5) # Poll nhẹ
-            
-    #     return "TIMEOUT_LOGIN_CHECK"
 
     def _wait_for_login_result(self, timeout=120):
         print("   [Step 1] Waiting for login result...")
@@ -182,7 +170,7 @@ class InstagramLoginStep:
             if status not in ["LOGGED_IN_UNKNOWN_STATE"]:
                 return status
             
-            time.sleep(2)  # Poll nhẹ
+            time.sleep(3)  # Poll nhẹ
             
         return "TIMEOUT_LOGIN_CHECK"
     def _detect_initial_status(self):
@@ -213,6 +201,10 @@ class InstagramLoginStep:
                 else:
                     return f"ERROR_DETECT: {str(e)}"
                 
+                
+            # you need to request help logging in To secure your account, you need to request help logging in
+                if "you need to request help logging in" in body_text or "to secure your account, you need to request help logging in" in body_text:
+                    return "GET_HELP_LOG_IN"
             # The login information you entered is incorrect
             if "the login information you entered is incorrect" in body_text or \
                        "incorrect username or password" in body_text or \
