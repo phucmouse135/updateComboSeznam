@@ -51,6 +51,9 @@ class InstagramPostLoginStep:
         """
         print("   [Step 3] Starting Aggressive Popup Scan...")
         
+        # Check for ad subscription popup and reload if found
+        
+        
         end_time = time.time() + 120  # Quét trong 120 giây 
         popup_handling_attempts = 0
         max_popup_attempts = 10  # Prevent infinite loops
@@ -74,6 +77,25 @@ class InstagramPostLoginStep:
                     print("   [Step 3] Handled Cookie Consent individually")
                     time.sleep(1)
                     continue
+                
+                try:
+                    current_url = self.driver.current_url.lower()
+                    if "ad_free_subscription" in current_url:
+                        print("   [Step 3] Detected ad_free_subscription URL. Reloading Instagram...")
+                        self.driver.get("https://www.instagram.com/")
+                        wait_dom_ready(self.driver, timeout=10)
+                        time.sleep(3)
+                        return  # Exit after reload
+                    
+                    body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+                    if "want to subscribe or continue using our products free of charge with ads?" in body_text:
+                        print("   [Step 3] Detected ad subscription popup text. Reloading Instagram...")
+                        self.driver.get("https://www.instagram.com/")
+                        wait_dom_ready(self.driver, timeout=10)
+                        time.sleep(3)
+                        return  # Exit after reload
+                except Exception as e:
+                    print(f"   [Step 3] Error checking for ad subscription: {e}")
                 
                 # --------------------------------------------------------- 
                 # 1. SEQUENTIAL SCAN (POPUP + HOME) BẰNG JS
