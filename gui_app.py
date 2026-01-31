@@ -217,6 +217,17 @@ class AutomationGUI:
                 print(f"   [Driver] Attempt {driver_attempt + 1}/{max_driver_retries} to create Chrome driver...")
                 driver = get_driver(headless=self.headless_var.get(), window_rect=window_rect)
                 print("   [Driver] Chrome driver created successfully")
+                
+                # Check for data: URL error and redirect
+                try:
+                    current_url = driver.current_url
+                    if current_url == "data:," or current_url.startswith("data:"):
+                        print("   [Driver] Detected data: URL error, redirecting to Instagram...")
+                        driver.get("https://www.instagram.com/")
+                        time.sleep(2)
+                except Exception as url_check_e:
+                    print(f"   [Driver] Error checking URL: {url_check_e}")
+                
                 break  # Success, exit retry loop
             except Exception as driver_error:
                 print(f"   [Driver] Failed to create Chrome driver (attempt {driver_attempt + 1}): {driver_error}")
