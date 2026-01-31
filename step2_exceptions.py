@@ -1096,17 +1096,27 @@ class InstagramExceptionStep:
             else:
                 return self._handle_birthday_screen()
         
-        if status == "TIMEOUT" and depth < 3:
+        if status == "TIMEOUT" and depth < 10:
             print("   [Step 2] Status is TIMEOUT. Reloading page to retry...")
-            self.driver.refresh()
+            self.driver.get("https://www.instagram.com/")
             wait_dom_ready(self.driver, timeout=20)
             new_status = self._check_verification_result()
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
+        # UNBLOCK_ACCOUNT
+        if status == "UNBLOCK_ACCOUNT":
+            print("   [Step 2] Handling Unblock Account...")
+            self.step3_post_login._handle_interruptions()
+            wait_dom_ready(self.driver, timeout=20)
+            time.sleep(2)
+            new_status = self._check_verification_result()
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+        
         # Handle TIMEOUT after max retries - redirect to instagram.com as fallback
-        if status == "TIMEOUT":
+        if status == "TIMEOUT" and depth >=10:
             print("   [Step 2] TIMEOUT persisted after retries. Redirecting to instagram.com as fallback...")
-            self.driver.get("https://www.instagram.com/")
+            # profile 
+            self.driver.get("https://www.instagram.com/{}/".format(ig_username))
             WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             time.sleep(2)
             new_status = self._check_verification_result()
@@ -1703,6 +1713,8 @@ class InstagramExceptionStep:
                 
                 # Check URL for unblock terms
                 current_url = self.driver.current_url.lower()
+                if "unblock" in current_url: 
+                    return "UNBLOCK_ACCOUNT"
                 
                 # Check URL for cookie choice
                 if "user_cookie_choice" in current_url:
@@ -1764,6 +1776,10 @@ class InstagramExceptionStep:
                 
                 # save info or not now
                 if self._safe_execute_script("return (document.querySelector('button[type=\"submit\"]') !== null && (document.body.innerText.toLowerCase().includes('save info') || document.body.innerText.toLowerCase().includes('not now') || document.body.innerText.toLowerCase().includes('để sau')))", False):
+                    return "LOGGED_IN_SUCCESS"
+                
+                # post , follower, following edit profile
+                if 'posts' in body_text or 'followers' in body_text or 'following' in body_text or 'edit profile' in body_text:
                     return "LOGGED_IN_SUCCESS"
                 
                 
