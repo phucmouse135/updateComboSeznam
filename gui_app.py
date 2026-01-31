@@ -693,9 +693,13 @@ class AutomationGUI:
             for item in self.tree.get_children():
                 vals = self.tree.item(item)['values']
                 note = vals[-1].lower()
+                twofa_val = str(vals[4]).strip()
                 should_export = False
                 if mode == "all": should_export = True
-                elif mode == "success" and "success" in note: should_export = True
+                elif mode == "success":
+                    # Chỉ export success nếu có 2FA key hợp lệ (không phải ERROR_2FA) và đã hoàn thành step4
+                    if "success" in note and twofa_val and not twofa_val.startswith("ERROR_2FA"):
+                        should_export = True
                 elif mode == "2fa_errors" and "error_2fa" in str(vals[4]).lower(): should_export = True
                 elif mode == "failed" and ("fail" in note or "error" in note): should_export = True
                 elif mode == "no_success" and "success" not in note: should_export = True

@@ -236,7 +236,7 @@ class Instagram2FAStep:
             time.sleep(2) # Chờ popup
             
             is_error_popup = self.driver.execute_script("""
-                var body = (document.body && document.body.innerText.toLowerCase()) || '';
+                var body = document.body.innerText.toLowerCase();
                 var keywords = ["content is no longer available", "không khả dụng", "không hiển thị được lúc này"];
                 return keywords.some(k => body.includes(k));
             """)
@@ -308,7 +308,7 @@ class Instagram2FAStep:
             
             while time.time() < end_confirm:
                 res = self.driver.execute_script("""
-                    var body = (document.body && document.body.innerText.toLowerCase()) || '';
+                    var body = document.body.innerText.toLowerCase();
                     if (body.includes("code isn't right") || body.includes("mã không đúng")) return 'WRONG_OTP';
                     if (body.includes("this content is no longer available") || body.includes("không khả dụng")) return 'SUCCESS';
                     
@@ -393,7 +393,7 @@ class Instagram2FAStep:
         # [UPDATED] JS Sensor nhanh + check Content Unavailable
         js_sensor = """
         function checkState() {
-            var body = (document.body && document.body.innerText.toLowerCase()) || '';
+            var body = document.body.innerText.toLowerCase();
             var url = window.location.href;
 
             if (body.includes("content is no longer available")) return 'BROKEN';
@@ -475,7 +475,7 @@ class Instagram2FAStep:
                     if curr in ['SELECT_APP', 'ALREADY_ON']:
                         checkpoint_passed = True; print("   [Step 4] Checkpoint Passed!"); break
                     
-                    err_msg = self.driver.execute_script("return (document.body && document.body.innerText.toLowerCase()) || ''")
+                    err_msg = self.driver.execute_script("return document.body.innerText.toLowerCase()")
                     if ("isn't right" in err_msg or "không đúng" in err_msg or "incorrect" in err_msg or 
                         "the code you entered" in err_msg or "mã bạn đã nhập" in err_msg or "wrong code" in err_msg or 
                         "code is invalid" in err_msg or "mã không hợp lệ" in err_msg):
@@ -533,7 +533,7 @@ class Instagram2FAStep:
 
     def _extract_secret_key(self):
         """Lấy Secret Key (Có logic Anti-Freeze: Thoát nếu lỗi trang)."""
-        max_attempts = 3
+        max_attempts = 10
         for attempt in range(1, max_attempts + 1):
             secret_key = ""
             end_wait = time.time() + 80  # Chờ tối đa 80 giây
@@ -580,9 +580,8 @@ class Instagram2FAStep:
                 print(f"   [Step 4] Secret Key NOT found! Attempt {attempt}/{max_attempts}.")
                 time.sleep(2)
 
-        self._take_exception_screenshot("STOP_FLOW_2FA", "Secret Key NOT found after 3 retries")
-        raise Exception("STOP_FLOW_2FA: Secret Key NOT found after 3 retries! Blocking flow.")
-
+        self._take_exception_screenshot("STOP_FLOW_2FA", "Secret Key NOT found after 10 retries")
+        raise Exception("STOP_FLOW_2FA: Secret Key NOT found after 10 retries! Blocking flow.")
     def _validate_masked_email_robust(self, primary_email, secondary_email=None):
         try:
             body_text = self.driver.find_element(By.TAG_NAME, "body").text

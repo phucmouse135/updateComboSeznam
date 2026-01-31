@@ -389,13 +389,13 @@ class InstagramLoginStep:
                     # Log into Instagram , password input 
                     if "log into instagram" in body_text or "password" in body_text or "mobile number, username, or email" in body_text or "log in with facebook" in body_text or "create new account" in body_text:
                         self.count += 1
-                        if self.count >=10:
+                        if self.count >=20:
                             return "LOGIN_FAILED"
                     
                     # Nếu vẫn còn ô password -> Login chưa qua (có thể đang loading)
                     if len(self.driver.find_elements(By.CSS_SELECTOR, "input[type='password']")) > 0:
                         self.count += 1
-                        if self.count >=10:
+                        if self.count >=20:
                             return "LOGIN_FAILED_RETRY"
 
                     # Nếu không xác định được trạng thái, kiểm tra loading hoặc url đứng yên
