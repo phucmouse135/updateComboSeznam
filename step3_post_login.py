@@ -22,7 +22,13 @@ class InstagramPostLoginStep:
         self._handle_interruptions()
         
         # 1.5. Đảm bảo đã vào Instagram trước khi navigate
+        self.driver.get("https://www.instagram.com/")
+        wait_dom_ready(self.driver, timeout=10)
+        
+        self._handle_interruptions()
         self._ensure_instagram_ready()
+        
+        
         
         # 2. Điều hướng vào Profile
         self._navigate_to_profile(username)
