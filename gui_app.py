@@ -211,7 +211,11 @@ class AutomationGUI:
             driver = get_driver(headless=self.headless_var.get(), window_rect=window_rect)
             # Step 1: Login
             step1 = InstagramLoginStep(driver)
-            step1.load_base_cookies("Wed New Instgram  2026 .json")
+            # step1.load_base_cookies("Wed New Instgram  2026 .json")
+            print("   [Step 1] Loading base cookies...")
+            driver.get("https://www.instagram.com/")
+            time.sleep(1)
+            print("   [Step 1] Logging in...")
             status = step1.perform_login(acc['username'], acc['password'])
             if "FAIL" in status:
                 end_time = time.time()

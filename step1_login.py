@@ -52,30 +52,21 @@ class InstagramLoginStep:
     def perform_login(self, username, password):
         print(f"   [Step 1] Login as {username}...")
 
-        # --- GIAI ĐOẠN 1: CHỌN "USE ANOTHER PROFILE" ---
-        input_check_css = "input[name='username'], input[name='email'], input[type='text']"
-        attempts = 0
-        max_attempts = 2
-        timeout = 30
-        while attempts < max_attempts:
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                if wait_element(self.driver, By.CSS_SELECTOR, input_check_css, timeout=3):
-                    break
-                print("   [Step 1] Inputs not ready. Checking for 'Use another profile'...")
-                xpath_switch = "//*[contains(text(), 'Use another profile') or contains(text(), 'Switch accounts') or contains(text(), 'Use another account')]"
-                if wait_and_click(self.driver, By.XPATH, xpath_switch, timeout=3):
-                    print("   [Step 1] Clicked 'Switch'. Waiting for inputs...")
-            else:
-                if attempts < max_attempts - 1:
-                    print("   [Step 1] Refreshing page to retry finding inputs...")
-                    self.driver.refresh()
-                    wait_dom_ready(self.driver, timeout=5)
-                    attempts += 1
-                    continue
-                else:
-                    return "FAIL_INPUT_TIMEOUT"
-            break
+        # --- GIAI ĐOẠN 1: CLICK ALLOW ALL COOKIES POPUP ---
+        print("   [Step 1] Checking for 'Allow all cookies' popup...")
+        cookie_button_selectors = [
+            (By.CSS_SELECTOR, "button._a9--._ap36._asz1[tabindex='0']"),
+            (By.XPATH, "//button[contains(@class, '_a9--') and contains(@class, '_ap36') and contains(@class, '_asz1') and contains(text(), 'Allow all cookies')]"),
+            (By.XPATH, "//button[contains(text(), 'Allow all cookies')]")
+        ]
+
+        for by, selector in cookie_button_selectors:
+            if wait_and_click(self.driver, by, selector, timeout=5):
+                print("   [Step 1] Clicked 'Allow all cookies' button")
+                time.sleep(2)  # Wait for popup to disappear
+                break
+        else:
+            print("   [Step 1] 'Allow all cookies' button not found or already dismissed")
 
         # --- GIAI ĐOẠN 2: NHẬP USER (TỐI ƯU TỐC ĐỘ) ---
         print("   [Step 1] Entering Username...")
@@ -303,8 +294,10 @@ class InstagramLoginStep:
                     if "check your text messages" in body_text or "kiểm tra tin nhắn văn bản của bạn" in body_text:
                         return "2FA_TEXT_MESSAGE"
                     
-                    if "allow the use of cookies" in body_text:
-                        return "COOKIE_CONSENT"
+                    # if "allow the use of cookies" in body_text:
+                    #     return "COOKIE_CONSENT"
+                    
+                    
                     
                     # Help us confirm it's you
                     if "help us confirm it's you" in body_text or "xác nhận đó là bạn" in body_text:
@@ -317,7 +310,7 @@ class InstagramLoginStep:
                         return "2FA_SMS"
 
                     # Check your WhatsApp messages 
-                    if "check your whatsapp messages" in body_text or "kiểm tra tin nhắn whatsapp của bạn" in body_text:
+                    if "check your whatsapp messages" in body_text or "kiểm tra tin nhắn whatsapp của bạn" in body_text or "we sent via whatsapp to" in body_text:
                         return "2FA_WHATSAPP"
 
 
