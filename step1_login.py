@@ -214,6 +214,10 @@ class InstagramLoginStep:
             if "choose a way to recover" in body_text:
                 return "RECOVERY_CHALLENGE"
             
+            # Choose if we process your data for ads
+            if "choose if we process your data for ads" in body_text or "chọn nếu chúng tôi xử lý dữ liệu của bạn cho quảng cáo" in body_text:
+                return "DATA_PROCESSING_FOR_ADS"
+            
             # Check for no internet connection
             if "we couldn't connect to instagram" in body_text and "make sure you're connected to the internet" in body_text:
                 return "NOT_CONNECT_INSTAGRAM"

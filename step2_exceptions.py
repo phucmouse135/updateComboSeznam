@@ -539,6 +539,17 @@ class InstagramExceptionStep:
             print(f"   [Step 2] Success status reached: {status}")
             return status
         
+        # DATA_PROCESSING_FOR_ADS
+        if status == "DATA_PROCESSING_FOR_ADS":
+            print("   [Step 2] Handling Data Processing For Ads...")
+            # redirect to instagram home to bypass
+            self.driver.get("https://www.instagram.com/")
+            WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+            new_status = self._check_verification_result()
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+        
+            
+        
         # "REAL_BIRTHDAY_REQUIRED"
         if status == "REAL_BIRTHDAY_REQUIRED":
             # reload instagram to trigger birthday screen
