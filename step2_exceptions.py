@@ -1763,8 +1763,8 @@ class InstagramExceptionStep:
                 if 'enter your real birthday' in body_text or 'nhập ngày sinh thật của bạn' in body_text:
                     return "REAL_BIRTHDAY_REQUIRED"
                 
-                # for you , following , also from meta, Suggested for you
-                if 'for you' in body_text or 'following' in body_text or 'suggested for you' in body_text:
+                # for you , following , also from meta, Suggested for you , Get fresh updates here when you follow accounts
+                if 'for you' in body_text or 'following' in body_text or 'suggested for you' in body_text or 'get fresh updates here when you follow accounts' in body_text: 
                     return "LOGGED_IN_SUCCESS"
                 
                 # use another profile va log into instagram => dang nhap lai voi data moi 
