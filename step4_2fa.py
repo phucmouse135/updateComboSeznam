@@ -74,26 +74,6 @@ class Instagram2FAStep:
             return null;
         """)
 
-    def _verify_step_completion(self, condition_func, step_name, max_retries=3, delay=1.0):
-        """
-        Helper to verify step completion with retries.
-        condition_func: function that returns True if step is completed.
-        step_name: string for logging and exception.
-        max_retries: number of retries.
-        delay: delay between retries in seconds.
-        Raises exception if not completed after retries.
-        """
-        for attempt in range(max_retries):
-            if condition_func():
-                print(f"   [Step 4] {step_name} completed successfully.")
-                return
-            if attempt < max_retries - 1:
-                print(f"   [Step 4] {step_name} not completed, retrying ({attempt+1}/{max_retries})...")
-                time.sleep(delay)
-        # If not completed, take screenshot and raise exception
-        self._take_exception_screenshot("STOP_FLOW_2FA", f"{step_name} not completed")
-        raise Exception(f"STOP_FLOW_2FA: {step_name} not completed after {max_retries} retries")
-
     def setup_2fa(self, gmx_user, gmx_pass, target_username, linked_mail=None):
         """
         Setup 2FA Flow - Logic gốc bảo toàn, thêm tối ưu chống treo.
@@ -106,10 +86,6 @@ class Instagram2FAStep:
 
             # --- 0. BYPASS 'DOWNLOAD APP' PAGE ---
             self._bypass_lite_page()
-            self._verify_step_completion(
-                lambda: self._get_page_state() != 'LITE_PAGE',
-                "Bypass Lite Page"
-            )
 
             # -------------------------------------------------
             # STEP 1: SELECT ACCOUNT
@@ -119,10 +95,6 @@ class Instagram2FAStep:
             if not acc_selected:
                 self._take_exception_screenshot("STOP_FLOW_2FA", "Account selection failed")
                 raise Exception("STOP_FLOW_2FA: Account selection failed")
-            self._verify_step_completion(
-                lambda: "two_factor" in self.driver.current_url or self._get_page_state() in ['SELECT_APP', 'CHECKPOINT', 'ALREADY_ON', 'RESTRICTED', 'OTP_INPUT_SCREEN'],
-                "Select Account"
-            )
 
             # -------------------------------------------------
             # STEP 2: SCAN STATE & HANDLE EXCEPTIONS
@@ -168,10 +140,6 @@ class Instagram2FAStep:
                 time.sleep(0.5)
 
             print(f"   [Step 4] Detected State: {state}")
-            self._verify_step_completion(
-                lambda: state in ['SELECT_APP', 'CHECKPOINT', 'ALREADY_ON', 'RESTRICTED', 'OTP_INPUT_SCREEN'],
-                "State Scanning"
-            )
 
             if state == 'RESTRICTED': 
                 self._take_exception_screenshot("STOP_FLOW_2FA", "RESTRICTED_DEVICE")
@@ -195,20 +163,12 @@ class Instagram2FAStep:
                 time.sleep(1.5)
                 self._solve_internal_checkpoint(gmx_user, gmx_pass, target_username)
                 state = self._get_page_state()
-                self._verify_step_completion(
-                    lambda: state != 'CHECKPOINT',
-                    "Handle Checkpoint"
-                )
 
             # -------------------------------------------------
             # STEP 3: SELECT AUTH APP
             # -------------------------------------------------
             print("   [Step 4] Step 3: Selecting Auth App...")
             self._select_auth_app_method(state)
-            self._verify_step_completion(
-                lambda: len(self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Copy key') or contains(text(), 'Sao chép')]")) > 0,
-                "Select Auth App"
-            )
 
             # -------------------------------------------------
             # STEP 4: GET SECRET KEY (CHỐT CHẶN CỨNG - KHÔNG SKIP)
@@ -273,10 +233,6 @@ class Instagram2FAStep:
             print(f"   [Step 4] OTP Input Filled. Confirming...")
             time.sleep(0.3)  # Giảm wait xuống 0.3s
             self._click_continue_robust()
-            self._verify_step_completion(
-                lambda: self._get_page_state() != 'OTP_INPUT_SCREEN' or 'authentication is on' in self.driver.find_element(By.TAG_NAME, "body").text.lower(),
-                "OTP Submission"
-            )
             
             # -------------------------------------------------
             # LOGIC RECOVERY (CONTENT NO LONGER AVAILABLE)

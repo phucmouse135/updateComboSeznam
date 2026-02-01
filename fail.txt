@@ -40,3 +40,5 @@ uslorsch	uslorsch@gmx.de	yslorsch	qbtqllo2R		removablebootlace10@gmx.de	qbtqllo2
 emmamop	emmamop@gmx.de	emmamoberlin	fcglagj9H		subtotalcultivate4@gmx.de	fcglagj9H	subtotalcultivate4@teml.net	EXCEPTION: LOG_IN_ANOTHER_DEVICE				Failed | Failed in 21.4s
 jussn10	jussn10@gmx.de	schwuchteldaniela6819	kiaxlsb4P		reactionantarctic10@gmx.de	kiaxlsb4P	reactionantarctic10@teml.net	GET_HELP_LOG_IN				Failed | Failed in 16.4s
 tehdhg	tehdhg@gmx.de	hhgfdfgrt	vbcnqur1C		transferconfidant4@gmx.de	vbcnqur1C	transferconfidant4@teml.net	EXCEPTION: SUSPENDED_PHONE				Failed | Failed in 52.2s
+archibay	archibay@gmx.de	felixhase123	qmpdgni7Y		smudgealoof2@gmx.de	qmpdgni7Y	smudgealoof2@teml.net	LOOP: Max recursion depth reached				Failed | Failed in 236.1s
+vdjalai	vdjalai@gmx.de	ganzeinfach9	rujhfkj4T		stowawayanew3@gmx.de	rujhfkj4T	stowawayanew3@teml.net	LOGIN_FAILED_INCORRECT				Failed | Failed in 54.6s
