@@ -636,8 +636,99 @@ class InstagramExceptionStep:
                     new_status = self._check_status_change_with_timeout(status, 15)
             
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+        # RETRY_LOGIN_2
+        if status == "RETRY_LOGIN_2":
+            print("   [Step 2] Handling Retry Login 2...")
+            # dien lai username
+            username_input = wait_element(self.driver, By.NAME, "username", timeout=10)
+            if username_input:
+                username_input.clear()
+                username_input.send_keys(ig_username)
+                time.sleep(1)
+                username_input.send_keys(Keys.ENTER)
+                WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            else:
+                print("   [Step 2] Could not find username input to retry login.")
+                
+            wait_dom_ready(self.driver, timeout=10)
+            time.sleep(2)
+            # DIEN LAI PASSWORD
+            password_input = wait_element(self.driver, By.NAME, "password", timeout=10)
+            if password_input:
+                password_input.clear()
+                password_input.send_keys(ig_password)
+                time.sleep(1)
+                password_input.send_keys(Keys.ENTER)
+                WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            else:
+                print("   [Step 2] Could not find password input to retry login.")
+            wait_dom_ready(self.driver, timeout=10)
+            time.sleep(2)
+            
+            new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
+        # RETRY LOGIN
+        if status == "RETRY_LOGIN":
+            print("   [Step 2] Handling Retry Login...")
+            # click continue button
+            self._robust_click_button([
+                ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
+                ("css", "button[type='submit']"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim().toLowerCase().includes('continue') || buttons[i].textContent.trim().toLowerCase().includes('tiếp tục')) {
+                            return buttons[i];
+                        }
+                    }
+                    return null;
+                """)
+            ])
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+                
+            # Nhap lai password
+            password_input = wait_element(self.driver, By.NAME, "password", timeout=10)
+            if password_input:
+                password_input.clear()
+                password_input.send_keys(ig_password)
+                time.sleep(1)
+                password_input.send_keys(Keys.ENTER)
+                WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            else:
+                print("   [Step 2] Could not find password input to retry login.")
+                
+            wait_dom_ready(self.driver, timeout=10)
+            time.sleep(2)
+            new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
+        # UNUSUAL_ACTIVITY_DETECTED
+        if status == "UNUSUAL_ACTIVITY_DETECTED":
+            print("   [Step 2] Handling Unusual Activity Detected...")
+            # click Dismiss button
+            self._robust_click_button([
+                ("xpath", "//button[contains(text(), 'Dismiss') or contains(text(), 'Bỏ qua')]"),
+                ("css", "button[type='button']"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim().toLowerCase().includes('dismiss') || buttons[i].textContent.trim().toLowerCase().includes('bỏ qua')) {
+                            return buttons[i];
+                        }
+                    return null;
+                """)
+            ])
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            time.sleep(2)
+            new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
         # SUBSCRIBE_OR_CONTINUE
         if status == "SUBSCRIBE_OR_CONTINUE":
@@ -1778,6 +1869,12 @@ class InstagramExceptionStep:
                 if "you need to request help logging in" in body_text or "to secure your account, you need to request help logging in" in body_text:
                     return "GET_HELP_LOG_IN"
                 
+                if "use another account" in body_text and "continue" in body_text:
+                    return "RETRY_LOGIN"
+                
+                # We suspect automated behavior on your account
+                if 'we suspect automated behavior on your account' in body_text or 'prevent your account from being temporarily ' in body_text or 'verify you are a real person' in body_text or 'suspicious activity' in body_text:
+                    return "UNUSUAL_ACTIVITY_DETECTED"
                 
                 #  Check your email or This email will replace all existing contact and login info on your account
                 if 'check your email' in body_text or 'this email will replace all existing contact and login info on your account' in body_text:
@@ -1792,6 +1889,9 @@ class InstagramExceptionStep:
                 
                 if 'add phone number' in body_text or 'send confirmation' in body_text or 'log into another account' in body_text:
                     return "SUSPENDED_PHONE"
+                
+                if "password" in body_text and "mobile number,username or email" in body_text:
+                    return "RETRY_LOGIN_2"
                 
                 if 'select your birthday' in body_text or 'add your birthday' in body_text:
                     return "BIRTHDAY_SCREEN"

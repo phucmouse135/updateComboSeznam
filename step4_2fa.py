@@ -167,6 +167,11 @@ class Instagram2FAStep:
             print("   [Step 4] Step 3: Selecting Auth App...")
             self._select_auth_app_method(state)
 
+            # Bắt buộc hoàn thành bước chọn Auth App trước khi bắt đầu extract key
+            if not self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Copy key') or contains(text(), 'Sao chép')]"):
+                self._take_exception_screenshot("STOP_FLOW_2FA", "Auth app selection not completed")
+                raise Exception("STOP_FLOW_2FA: Auth app selection not completed, Copy key not found")
+
             # -------------------------------------------------
             # STEP 4: GET SECRET KEY (CHỐT CHẶN CỨNG - KHÔNG SKIP)
             # -------------------------------------------------
