@@ -133,8 +133,6 @@ class Instagram2FAStep:
                     raise Exception("STOP_FLOW_2FA: EMAIL_MISMATCH") 
                 time.sleep(1.5)
                 result = self._solve_internal_checkpoint(gmx_user, gmx_pass, target_username)
-                if result != True:
-                    return f"ERROR_2FA: {result}"
                 state = self._get_page_state()
 
             # -------------------------------------------------
@@ -497,7 +495,7 @@ class Instagram2FAStep:
         if checkpoint_passed:
             return True
         else:
-            return "CHECKPOINT_MAIL: NO CODE"
+            raise Exception("STOP_FLOW_2FA: CHECKPOINT_MAIL: NO CODE")
 
     def _select_auth_app_method(self, current_state):
         if self._get_page_state() == 'ALREADY_ON': return
