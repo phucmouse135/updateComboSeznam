@@ -1771,6 +1771,9 @@ class InstagramExceptionStep:
                 if "user_cookie_choice" in current_url:
                     return "COOKIE_CONSENT_POPUP"
                 
+                if "api/v1/discover/ayml/" in current_url:
+                    return "SOMETHING_WRONG"
+                
                 # you need to request help logging in To secure your account, you need to request help logging in
                 if "you need to request help logging in" in body_text or "to secure your account, you need to request help logging in" in body_text:
                     return "GET_HELP_LOG_IN"
@@ -1799,7 +1802,7 @@ class InstagramExceptionStep:
                 if 'suspended' in body_text or 'đình chỉ' in body_text:
                     return "SUSPENDED"
                 # some thing wrong 
-                if 'something went wrong' in body_text or 'đã xảy ra sự cố' in body_text or "this page isn’t working" in body_text or 'the site is temporarily unavailable' in body_text or "reload" in body_text or "HTTP 403" in body_text or "HTTP 500" in body_text or "HTTP 502" in body_text or "HTTP 504" in body_text:
+                if 'something went wrong' in body_text or 'đã xảy ra sự cố' in body_text or "this page isn’t working" in body_text or 'the site is temporarily unavailable' in body_text or "reload" in body_text or "HTTP 403" in body_text or "HTTP 500" in body_text or "HTTP 502" in body_text or "HTTP 504" in body_text or "useragent mismatch" in body_text:
                     return "SOMETHING_WRONG"
                 
                 if 'sorry, there was a problem' in body_text or 'please try again' in body_text:

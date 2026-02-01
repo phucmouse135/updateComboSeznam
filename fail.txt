@@ -218,3 +218,6 @@ www.migger	www.migger@gmx.de	mikavdk	qvoslxx0J		scorncamping8@gmx.de	qvoslxx0J	s
 gffddhh	gffddhh@gmx.de	yagmurggzzf	wddlwdy7X		squealerantarctic3@gmx.de	wddlwdy7X	squealerantarctic3@teml.net	EXCEPTION: LOG_IN_ANOTHER_DEVICE				Failed | Failed in 18.1s
 snkfjg	snkfjg@gmx.de	snkfjg	kqiigcm0Q		valueapproval8@gmx.de	kqiigcm0Q	valueapproval8@teml.net	EXCEPTION: SUSPENDED_PHONE				Failed | Failed in 53.2s
 jordbah	jordbah@gmx.de	jordbah	plwurhz3W		smallcompress4@gmx.de	plwurhz3W	smallcompress4@teml.net	GET_HELP_LOG_IN				Failed | Failed in 15.9s
+fhvsdgh	fhvsdgh@gmx.de	anikka.sss	yetpsqo5W		tapiocadainty2@gmx.de	yetpsqo5W	tapiocadainty2@teml.net	EXCEPTION: LOG_IN_ANOTHER_DEVICE				Failed | Failed in 19.8s
+o.muehlbach	o.muehlbach@gmx.de	olgamuhlbach	hmqjxfy1H		slackingamplify7@gmx.de	hmqjxfy1H	slackingamplify7@teml.net	LOGIN_FAILED_INCORRECT				Failed | Failed in 50.5s
+cancanpolat97	cancanpolat97@gmx.de	caanooo__	vhfvcoz0R		retailclapper3@gmx.de	vhfvcoz0R	retailclapper3@teml.net	EXCEPTION: SUSPENDED_PHONE				Failed | Failed in 53.0s
