@@ -389,12 +389,11 @@ class InstagramLoginStep:
                     if "confirm your info on the app" in body_text:
                         return "2FA_APP"
                     
-                    if "use another account" in body_text and "continue" in body_text:
-                        return "RETRY_LOGIN"
-
-                    # Use another profile => Văng về chọn tài khoản
-                    if "use another profile" in body_text or "Log into Instagram" in body_text or "create new account" in body_text:
-                        return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION"
+                    if "use another account" in body_text or "create new account" in body_text:
+                        if "continue" in body_text:
+                            return "RETRY_LOGIN"
+                        if "log into instagram" in body_text:
+                            return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION"
 
                     
 
