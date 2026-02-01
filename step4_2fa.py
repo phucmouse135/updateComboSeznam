@@ -16,28 +16,6 @@ class Instagram2FAStep:
         self.driver = driver
         self.target_url = "https://accountscenter.instagram.com/password_and_security/two_factor/"
 
-    def _take_exception_screenshot(self, exception_type, additional_info=""):
-        """Take a screenshot when an exception occurs for debugging purposes."""
-        try:
-            import os
-            timestamp = int(time.time())
-            screenshot_dir = "screenshots"
-            os.makedirs(screenshot_dir, exist_ok=True)
-            
-            # Clean exception type for filename
-            clean_exception = str(exception_type).replace(":", "_").replace(" ", "_").replace("/", "_")[:50]
-            clean_info = str(additional_info).replace(":", "_").replace(" ", "_").replace("/", "_")[:30]
-            
-            filename = f"exception_{clean_exception}_{clean_info}_{timestamp}.png"
-            screenshot_path = os.path.join(screenshot_dir, filename)
-            
-            self.driver.save_screenshot(screenshot_path)
-            print(f"   [Exception Screenshot] Saved: {screenshot_path}")
-            return screenshot_path
-        except Exception as screenshot_e:
-            print(f"   [Exception Screenshot] Failed to save screenshot: {screenshot_e}")
-            return None
-
     def _safe_element_action(self, action_func, max_retries=3, delay=0.5):
         """
         Helper to perform element actions with retry on StaleElementReferenceException.
@@ -152,7 +130,6 @@ class Instagram2FAStep:
                 print(f"   [Step 4] Step 2.5: Handling Internal Checkpoint...")
                 if not self._validate_masked_email_robust(gmx_user, linked_mail):
                     print("   [STOP] Script halted: Targeted email is not yours.")
-                    # self._take_exception_screenshot("STOP_FLOW_2FA", "EMAIL_MISMATCH")
                     raise Exception("STOP_FLOW_2FA: EMAIL_MISMATCH") 
                 time.sleep(1.5)
                 result = self._solve_internal_checkpoint(gmx_user, gmx_pass, target_username)
@@ -223,7 +200,6 @@ class Instagram2FAStep:
                 time.sleep(0.5)  # Poll nhanh hơn
                 
             if not is_filled: 
-                # self._take_exception_screenshot("STOP_FLOW_2FA", "OTP_INPUT_FAIL")
                 raise Exception("STOP_FLOW_2FA: OTP_INPUT_FAIL")
             
             print(f"   [Step 4] OTP Input Filled. Confirming...")
@@ -323,7 +299,6 @@ class Instagram2FAStep:
                 """)
                 
                 if res == 'WRONG_OTP': 
-                    # self._take_exception_screenshot("STOP_FLOW_2FA", "OTP_REJECTED")
                     raise Exception("STOP_FLOW_2FA: OTP_REJECTED")
                 if res == 'SUCCESS' or self._get_page_state() == 'ALREADY_ON': 
                     success = True
@@ -332,7 +307,6 @@ class Instagram2FAStep:
                 time.sleep(1)
 
             if not success: 
-                # self._take_exception_screenshot("STOP_FLOW_2FA", "TIMEOUT (Done button not found)")
                 raise Exception("STOP_FLOW_2FA: TIMEOUT (Done button not found)")
             time.sleep(1)
             return secret_key
@@ -554,10 +528,8 @@ class Instagram2FAStep:
                     # [ANTI-FREEZE Check]
                     current_state = self._get_page_state() # Check nhanh bằng JS
                     if current_state == 'BROKEN' or current_state == 'SUSPENDED':
-                         # self._take_exception_screenshot("STOP_FLOW_2FA", "Page Broken/Suspended while waiting for key")
                          raise Exception("STOP_FLOW_2FA: Page Broken/Suspended while waiting for key")
                     if "two_factor" not in self.driver.current_url and "challenge" not in self.driver.current_url:
-                         # self._take_exception_screenshot("STOP_FLOW_2FA", "Redirected away from 2FA page")
                          raise Exception("STOP_FLOW_2FA: Redirected away from 2FA page")
                     if current_state == 'ALREADY_ON': return "ALREADY_2FA_ON"
 
@@ -652,7 +624,6 @@ class Instagram2FAStep:
                 print(f"   [Step 4] Secret Key NOT found! Attempt {attempt}/{max_attempts}.")
                 time.sleep(2)
 
-        # self._take_exception_screenshot("STOP_FLOW_2FA", "Secret Key NOT found after 10 retries")
         raise Exception("STOP_FLOW_2FA: Secret Key NOT found after 10 retries! Blocking flow.")
     def _validate_masked_email_robust(self, primary_email, secondary_email=None):
         try:

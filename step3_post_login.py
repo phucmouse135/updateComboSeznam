@@ -70,8 +70,6 @@ class InstagramPostLoginStep:
                             break
                 except: pass
                 
-                # Scroll nhẹ để đảm bảo element không bị che trước mỗi lần scan
-                self.driver.execute_script("window.scrollBy(0, 50);")
                 time.sleep(0.5)
                 
                 # ---------------------------------------------------------
@@ -109,16 +107,11 @@ class InstagramPostLoginStep:
                         time.sleep(3)
                         return  # Exit after reload
                     
-                    if "ig_sso_users" in current_url or "/api/v1/" in current_url or "error" in current_url:
-                        print(f"   [Step 3] Crash URL detected. Reloading Home...")
-                        self.driver.get("https://www.instagram.com/")
-                        time.sleep(4); continue
 
                     if ("page isn’t working" in body_text or "http error" in body_text or
                         'something went wrong' in body_text or 'đã xảy ra sự cố' in body_text or
                         "this page isn’t working" in body_text or 'the site is temporarily unavailable' in body_text or
-                        "reload" in body_text or "HTTP ERROR" in body_text or "HTTP 500" in body_text or
-                        "HTTP 502" in body_text or "HTTP 504" in body_text or "useragent mismatch" in body_text):
+                        "reload" in body_text  or "useragent mismatch" in body_text):
                         print("   [Step 3] Error page detected. Reloading Home...")
                         self.driver.get("https://www.instagram.com/")
                         time.sleep(4); continue
@@ -129,9 +122,6 @@ class InstagramPostLoginStep:
                 # 1. SEQUENTIAL SCAN (POPUP + HOME) BẰNG JS
                 # ---------------------------------------------------------
                 action_result = self.driver.execute_script("""
-                    // Scroll trước khi kiểm tra popup
-                    window.scrollBy(0, 50);
-                    
                     // 1. KIỂM TRA HOME TRƯỚC (Điều kiện thoát nhanh)
                     // Nếu thấy icon Home và không có dialog nào che -> Báo về Home ngay
                     var homeIcon = document.querySelector("svg[aria-label='Home']") || document.querySelector("svg[aria-label='Trang chủ']");
@@ -157,7 +147,6 @@ class InstagramPostLoginStep:
 
                     // --- ƯU TIÊN: POPUP "ACCOUNTS CENTER" ---
                     if (keywords.account_center_check.some(k => bodyText.includes(k))) {
-                        window.scrollBy(0, 50);
                         let buttons = document.querySelectorAll('button, div[role="button"], span');
                         for (let btn of buttons) {
                             let t = btn.innerText.toLowerCase().trim();
@@ -179,7 +168,6 @@ class InstagramPostLoginStep:
                         if (visualCircle) visualCircle.click();
 
                         // Auto click Agree sau 1s
-                        window.scrollBy(0, 50);
                         setTimeout(() => {
                             let btns = document.querySelectorAll('button, div[role="button"]');
                             for(let b of btns) {
@@ -199,7 +187,6 @@ class InstagramPostLoginStep:
                     }
 
                     // Scroll before handling options
-                    window.scrollBy(0, 50);
 
                     // A. TÌM VÀ CHỌN OPTION (Use Data)
                     const labels = document.querySelectorAll('div, span, label');
@@ -213,7 +200,6 @@ class InstagramPostLoginStep:
                     }
 
                     // B. TÌM VÀ CLICK NÚT BẤM CHUNG
-                    window.scrollBy(0, 50);
                     const elements = document.querySelectorAll('button, div[role="button"]');
                     for (let el of elements) {
                         if (el.offsetParent === null) continue; 
@@ -249,7 +235,6 @@ class InstagramPostLoginStep:
                     try:
                         # Check again for any remaining dialogs or overlays
                         final_check = self.driver.execute_script("""
-                            window.scrollBy(0, 50);
                             var dialogs = document.querySelectorAll('div[role="dialog"], div[role="alertdialog"], div[aria-modal="true"]');
                             var hasVisibleDialog = Array.from(dialogs).some(d => d.offsetParent !== null && d.getAttribute('aria-hidden') !== 'true');
                             
@@ -347,8 +332,6 @@ class InstagramPostLoginStep:
         try:
             # Try to click Continue or This Was Me buttons
             continue_buttons = self.driver.execute_script("""
-                // Scroll before handling
-                window.scrollBy(0, 50);
                 var buttons = document.querySelectorAll('button, div[role="button"]');
                 var found = [];
                 for (var btn of buttons) {
@@ -427,8 +410,6 @@ class InstagramPostLoginStep:
     def _handle_age_verification(self):
         """Handle age verification popup individually."""
         try:
-            # Scroll before handling
-            self.driver.execute_script("window.scrollBy(0, 50);")
             time.sleep(0.5)
             radio = self.driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="above_18"]')
             radio.click()
@@ -464,8 +445,6 @@ class InstagramPostLoginStep:
     def _handle_accounts_center(self):
         """Handle accounts center popup individually."""
         try:
-            # Scroll before handling
-            self.driver.execute_script("window.scrollBy(0, 50);")
             time.sleep(0.5)
             body_text = self.driver.find_element(By.TAG_NAME, 'body').text.lower()
             if 'choose an option' in body_text or 'accounts center' in body_text or 'use data across accounts' in body_text:
@@ -481,8 +460,6 @@ class InstagramPostLoginStep:
     def _handle_cookie_consent(self):
         """Handle cookie consent popup individually."""
         try:
-            # Scroll before handling
-            self.driver.execute_script("window.scrollBy(0, 50);")
             time.sleep(0.5)
             buttons = self.driver.find_elements(By.CSS_SELECTOR, 'button, div[role="button"]')
             for b in buttons:
@@ -625,8 +602,6 @@ class InstagramPostLoginStep:
         
         final_data = {"posts": "0", "followers": "0", "following": "0"}
         
-        # Scroll down to load stats
-        self.driver.execute_script("window.scrollTo(0, 500);")
         time.sleep(1)
         
         js_crawl = """

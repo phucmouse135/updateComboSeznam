@@ -36,27 +36,6 @@ class InstagramExceptionStep:
         """Default callback for password changes - does nothing."""
         print(f"   [Step 2] Password changed for {username}: {new_password[:3]}***")
 
-    def _take_exception_screenshot(self, exception_type, additional_info=""):
-        """Take a screenshot when an exception occurs for debugging purposes."""
-        try:
-            timestamp = int(time.time())
-            screenshot_dir = "screenshots"
-            os.makedirs(screenshot_dir, exist_ok=True)
-            
-            # Clean exception type for filename
-            clean_exception = str(exception_type).replace(":", "_").replace(" ", "_").replace("/", "_")[:50]
-            clean_info = str(additional_info).replace(":", "_").replace(" ", "_").replace("/", "_")[:30]
-            
-            filename = f"exception_{clean_exception}_{clean_info}_{timestamp}.png"
-            screenshot_path = os.path.join(screenshot_dir, filename)
-            
-            self.driver.save_screenshot(screenshot_path)
-            print(f"   [Exception Screenshot] Saved: {screenshot_path}")
-            return screenshot_path
-        except Exception as screenshot_e:
-            print(f"   [Exception Screenshot] Failed to save screenshot: {screenshot_e}")
-            return None
-
     def _safe_execute_script(self, script, default=None, retries=2):
         """Execute JS script with retry on timeout errors."""
         for attempt in range(retries + 1):
@@ -992,6 +971,14 @@ class InstagramExceptionStep:
             ], timeout=20)
             time.sleep(2)
             
+            # retry neu chua chon duoc
+            if not clicked_use_data:
+                print("   [Step 2] 'Use data across accounts' radio not found, trying alternative selector...")
+                clicked_use_data = self._robust_click_button([
+                    ("css", "label"), # Fallback to any label
+                ], timeout=20)
+                time.sleep(2)
+            
             # Click nút "Next"
             clicked_next = self._robust_click_button([
                 ("xpath", "//button[contains(text(), 'Next')]"),
@@ -1000,6 +987,12 @@ class InstagramExceptionStep:
                 ("xpath", "//div[@role='button'][contains(text(), 'Tiếp theo')]"),
                 ("css", "button._acan._acap._acas") # Class thường dùng cho nút xanh primary
             ], timeout=10)
+            
+            if not clicked_next:
+                print("   [Step 2] 'Next' button not found, trying alternative selector...")
+                clicked_next = self._robust_click_button([
+                    ("css", "div[role='button']"),
+                ], timeout=20)
         
             wait_dom_ready(self.driver, timeout=20)
             time.sleep(2)
@@ -1026,9 +1019,6 @@ class InstagramExceptionStep:
                     error_msg = str(e)
                     print(f"   [Step 2] Error in _handle_require_password_change: {error_msg}")
 
-                    # Take screenshot for debugging
-                    # self._take_exception_screenshot("REQUIRE_PASSWORD_CHANGE_ERROR", error_msg)
-
                     # Check if it's a stale element issue that might be recoverable
                     if "stale" in error_msg.lower() or "element" in error_msg.lower():
                         print(f"   [Step 2] Stale element detected, attempting page refresh recovery...")
@@ -1054,7 +1044,6 @@ class InstagramExceptionStep:
                         raise e
 
                 if time.time() - start_time > TIMEOUT:
-                    # self._take_exception_screenshot("TIMEOUT_REQUIRE_PASSWORD_CHANGE", "End")
                     raise Exception("TIMEOUT_REQUIRE_PASSWORD_CHANGE: End")
 
                 # Cập nhật lại password mới lên GUI NGAY LẬP TỨC trước khi gọi các bước tiếp theo
@@ -1076,7 +1065,6 @@ class InstagramExceptionStep:
                     print(f"   [Step 2] Password changed but not logged in. Status: {current_status}. Returning RESTART_LOGIN to restart process with new password.")
                     return "RESTART_LOGIN"
             else:
-                # self._take_exception_screenshot("STOP_FLOW_REQUIRE_PASSWORD_CHANGE", "No password provided")
                 raise Exception("STOP_FLOW_REQUIRE_PASSWORD_CHANGE: No password provided")
 
         if status == "CHANGE_PASSWORD":
@@ -1092,7 +1080,6 @@ class InstagramExceptionStep:
                     self.driver.get("https://www.instagram.com/")
                     wait_dom_ready(self.driver, timeout=20)
                     time.sleep(2)
-                    # self._take_exception_screenshot("CHANGE_PASSWORD_ERROR", str(e))
                     raise e
                 # Cập nhật lại password mới lên GUI NGAY LẬP TỨC trước khi gọi các bước tiếp theo
                 if hasattr(self, "on_password_changed") and callable(getattr(self, "on_password_changed", None)):
@@ -1114,7 +1101,6 @@ class InstagramExceptionStep:
                     print(f"   [Step 2] Password changed but not logged in. Status: {current_status}. Returning RESTART_LOGIN to restart process with new password.")
                     return "RESTART_LOGIN"
             else:
-                # self._take_exception_screenshot("STOP_FLOW_CHANGE_PASSWORD", "No password provided")
                 raise Exception("STOP_FLOW_CHANGE_PASSWORD: No password provided")
             
     
@@ -1222,7 +1208,6 @@ class InstagramExceptionStep:
         ]
 
         if status in fail_statuses:
-            # self._take_exception_screenshot("STOP_FLOW_EXCEPTION", status)
             raise Exception(f"STOP_FLOW_EXCEPTION: {status}")
         
         if status == "BIRTHDAY_SCREEN":
@@ -1305,7 +1290,6 @@ class InstagramExceptionStep:
                 except Exception as e:
                     print(f"   [Step 2] Warning checking for real birthday text: {e}")
                 if time.time() - start_time > TIMEOUT:
-                    # # self._take_exception_screenshot("TIMEOUT_BIRTHDAY_SCREEN", "Main loop")
                     raise Exception("TIMEOUT_BIRTHDAY_SCREEN: Main loop")
                 print(f"   [Step 2] Birthday Attempt {attempt+1}/3...")
                 
@@ -1324,7 +1308,6 @@ class InstagramExceptionStep:
                         if els and els[0].is_displayed():
                             year_select_el = els[0]; break
                         if time.time() - start_time > TIMEOUT:
-                            # self._take_exception_screenshot("TIMEOUT_BIRTHDAY_SCREEN", "Year select find")
                             raise Exception("TIMEOUT_BIRTHDAY_SCREEN: Year select find")
                     
                     if year_select_el:
@@ -1356,7 +1339,6 @@ class InstagramExceptionStep:
                             else:
                                 print(f"   [Step 2] Year mismatch ({current_val} vs {target_year}). Retrying...")
                             if time.time() - start_time > TIMEOUT:
-                                # self._take_exception_screenshot("TIMEOUT_BIRTHDAY_SCREEN", "Year select loop")
                                 raise Exception("TIMEOUT_BIRTHDAY_SCREEN: Year select loop")
                         
                         if year_confirmed:
@@ -1465,7 +1447,6 @@ class InstagramExceptionStep:
 
             WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             if time.time() - start_time > TIMEOUT:
-                # self._take_exception_screenshot("TIMEOUT_BIRTHDAY_SCREEN", "End")
                 raise Exception("TIMEOUT_BIRTHDAY_SCREEN: End")
             return "LOGGED_IN_SUCCESS"
 
@@ -1519,14 +1500,12 @@ class InstagramExceptionStep:
                         time.sleep(2)  # Reduced from 2s
                         break
                         if time.time() - start_time > TIMEOUT:
-                            # self._take_exception_screenshot("TIMEOUT_EMAIL_CHECKPOINT", "Radio/Send button")
                             raise Exception("TIMEOUT_EMAIL_CHECKPOINT: Radio/Send button")
         except Exception as e:
             print(f"   [Step 2] Warning handling radio buttons: {e}")
         
         # --- GIAI ĐOẠN 1: VERIFY HINT ---
         if not self._validate_masked_email_robust(gmx_user, linked_mail):
-            # self._take_exception_screenshot("STOP_FLOW_CHECKPOINT", "Email hint mismatch")
             raise Exception("STOP_FLOW_CHECKPOINT: Email hint mismatch")
 
         # Sử dụng _check_mail_flow để đồng bộ logic chống lặp vô hạn

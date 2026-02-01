@@ -167,30 +167,25 @@ class AutomationGUI:
     def calculate_window_rect(self, slot_id, total_slots):
         """
         Tính toán x, y, width, height dựa trên Slot ID và kích thước màn hình.
-        Chia màn hình thành lưới (Grid) để xếp các cửa sổ Chrome.
+        Chia màn hình theo chiều ngang, giữ nguyên chiều dọc để xếp các cửa sổ Chrome.
         """
         try:
             screen_width = self.root.winfo_screenwidth()
             screen_height = self.root.winfo_screenheight() - 50 # Trừ thanh Taskbar
             
-            # Tính số cột và dòng tối ưu
-            # Ví dụ: 10 threads -> 5 cột x 2 dòng
-            cols = math.ceil(math.sqrt(total_slots))
-            if total_slots > 4: 
-                cols = 5 # Fix cứng tối đa 5 cột ngang cho dễ nhìn nếu chạy nhiều
-            rows = math.ceil(total_slots / cols)
+            # Giữ nguyên chiều dọc, chia theo chiều ngang
+            rows = 1
+            cols = total_slots
             
             win_w = int(screen_width / cols)
-            win_h = int(screen_height / rows)
+            win_h = screen_height  # Giữ nguyên chiều cao màn hình
             
             # Tính tọa độ
-            # slot_id 0 -> row 0, col 0
-            # slot_id 1 -> row 0, col 1 ...
-            curr_row = slot_id // cols
+            curr_row = 0  # Luôn ở hàng đầu
             curr_col = slot_id % cols
             
             x = curr_col * win_w
-            y = curr_row * win_h
+            y = 0
             
             return (x, y, win_w, win_h)
         except:
@@ -305,7 +300,19 @@ class AutomationGUI:
                 note_time = f"Failed in {elapsed:.1f}s"
                 self.msg_queue.put(("FAIL_CRITICAL", (item_id, f"Failed after restart: {final_status}", note_time)))
                 return
-                
+            
+            # [NEW] Kiểm tra lại status sau 5 giây để đảm bảo session không bị logout
+            print("   [Main] Waiting 5 seconds to verify session stability...")
+            time.sleep(5)
+            recheck_status = step2._check_verification_result()
+            if recheck_status not in success_statuses:
+                print(f"   [Main] Session unstable after 5s: {recheck_status}")
+                end_time = time.time()
+                elapsed = end_time - start_time
+                note_time = f"Session unstable in {elapsed:.1f}s"
+                self.msg_queue.put(("FAIL_CRITICAL", (item_id, "LOGOUT AFTER LOGIN", note_time)))
+                return
+            
             # Step 3: Crawl in new tab
             # Open new tab for step 3
             driver.execute_script("window.open('https://www.instagram.com/');")

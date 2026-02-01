@@ -225,7 +225,10 @@ class InstagramLoginStep:
             
             # Use another profile => Văng về chọn tài khoản
             if "use another profile" in body_text or "Log into Instagram" in body_text or "create new account" in body_text:
-                return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION"
+                if self.count >=20:
+                    return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION"
+                else:
+                    self.count += 1
             
             if "choose a way to recover" in body_text:
                 return "RECOVERY_CHALLENGE"
