@@ -137,7 +137,7 @@ class InstagramLoginStep:
             if self.driver.current_url != initial_url:
                 wait_dom_ready(self.driver, timeout=20)
                 break
-            time.sleep(5)
+            time.sleep(3)
         status = self._wait_for_login_result(timeout=120)
         
         # Handle cookie consent popup after login if detected
@@ -314,6 +314,11 @@ class InstagramLoginStep:
                     if "confirm your accounts" in body_text or "xác nhận tài khoản của bạn" in body_text:
                         if "get started" in body_text or "bắt đầu" in body_text:
                             return "CONFIRM_YOUR_ACCOUNTS"
+                        
+                    if "the login information you entered is incorrect" in body_text or \
+                       "incorrect username or password" in body_text or \
+                        "thông tin đăng nhập bạn đã nhập không chính xác" in body_text:
+                        return "LOGIN_FAILED_INCORRECT"
                     
                     # We Detected An Unusual Login Attempt 
                     if ("we detected an unusual login attempt" in body_text or "to secure your account, we'll send you a security code." in body_text) :
