@@ -2,6 +2,7 @@
 import time
 import re
 import pyotp
+import pyperclip
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
@@ -174,7 +175,7 @@ class Instagram2FAStep:
             time.sleep(5) 
             
             # [UPDATED] Hàm này đã được tối ưu để check Anti-Freeze
-            secret_key = self._extract_secret_key()
+            secret_key = self._extract_secret_key(ig_username = target_username)
             
             def format_key_groups(key):
                 key_nospaces = key.replace(" ", "")
@@ -531,7 +532,7 @@ class Instagram2FAStep:
             if len(self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Copy key') or contains(text(), 'Sao chép')]") ) > 0: return
             time.sleep(1)
 
-    def _extract_secret_key(self):
+    def _extract_secret_key(self, ig_username):
         """Lấy Secret Key (Có logic Anti-Freeze: Thoát nếu lỗi trang)."""
         max_attempts = 10
         for attempt in range(1, max_attempts + 1):
@@ -549,18 +550,73 @@ class Instagram2FAStep:
                          raise Exception("STOP_FLOW_2FA: Redirected away from 2FA page")
                     if current_state == 'ALREADY_ON': return "ALREADY_2FA_ON"
 
-                    self.driver.execute_script("var els=document.querySelectorAll('span, div[role=\"button\"]'); for(var e of els){if(e.innerText.includes('Copy key')||e.innerText.includes('Sao chép')){e.click();break;}}")
+                    # Kiểm tra sự xuất hiện của "Copy key" button trước khi extract
+                    copy_key_buttons = self.driver.find_elements(By.CSS_SELECTOR, 'div[role="button"]')
+                    has_copy_key = any('Copy key' in btn.text or 'Sao chép' in btn.text for btn in copy_key_buttons)
+                    
+                    if has_copy_key:
+                        # Click "Copy key" button để copy vào clipboard
+                        try:
+                            copy_button = next(btn for btn in copy_key_buttons if 'Copy key' in btn.text or 'Sao chép' in btn.text)
+                            # Clear clipboard trước khi copy
+                            pyperclip.copy('')
+                            # Scroll to button and use JS click to avoid interception
+                            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", copy_button)
+                            time.sleep(0.5)
+                            self.driver.execute_script("arguments[0].click();", copy_button)
+                            time.sleep(1.0)  # Tăng delay để chờ copy hoàn tất
+                            raw_key = pyperclip.paste().replace(" ", "").strip()
+                            print(f"   [Step 4] Copied from clipboard: {raw_key}")
+                            if len(raw_key) >= 16 and re.match(r'^[A-Z2-7]+$', raw_key):
+                                # Skip if it contains the username (case insensitive)
+                                if ig_username.lower() in raw_key.lower():
+                                    print(f"   [Step 4] Skipped potential key containing username: {raw_key}")
+                                    continue
+                                secret_key = raw_key
+                                break
+                            else:
+                                print(f"   [Step 4] Invalid key from clipboard: {raw_key}")
+                        except Exception as e:
+                            print(f"   [Step 4] Error clicking Copy key or getting from clipboard: {e}")
+                            # Fallback: Lấy trực tiếp từ span element
+                            try:
+                                secret_span = self.driver.find_element(By.CSS_SELECTOR, 'span[class*="x1lliihq"]')
+                                self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", secret_span)
+                                time.sleep(0.5)
+                                raw_key = secret_span.text.replace(" ", "").strip()
+                                print(f"   [Step 4] Fallback extracted from span: {raw_key}")
+                                if len(raw_key) >= 16 and re.match(r'^[A-Z2-7]+$', raw_key):
+                                    if ig_username.lower() in raw_key.lower():
+                                        print(f"   [Step 4] Skipped potential key from span: {raw_key}")
+                                        continue
+                                    secret_key = raw_key
+                                    break
+                                else:
+                                    print(f"   [Step 4] Invalid key from span: {raw_key}")
+                            except Exception as e2:
+                                print(f"   [Step 4] Fallback span extraction failed: {e2}")
+                    else:
+                        print("   [Step 4] 'Copy key' button not detected. Waiting...")
+                        # Nếu chưa có "Copy key", tiếp tục chờ
+                        continue
 
                     if current_state == 'OTP_INPUT_SCREEN' and not secret_key:
                         print("   [Step 4] Warning: Skiped to OTP screen! Clicking Back...")
                         self.driver.execute_script("var b = document.querySelector('div[role=\"button\"] svg'); if(b) b.closest('div[role=\"button\"]').click();")
                         time.sleep(1); continue
 
-                    full_text = self.driver.find_element(By.TAG_NAME, "body").text
-                    m = re.search(r'([A-Z2-7]{4}\s?){4,}', full_text)
-                    if m:
-                        clean = m.group(0).replace(" ", "").strip()
-                        if len(clean) >= 16: secret_key = clean; break
+                    # Fallback: regex trên body text (nếu cần)
+                    if not secret_key:
+                        full_text = self.driver.find_element(By.TAG_NAME, "body").text
+                        m = re.search(r'([A-Z2-7]{4}\s?){4,}', full_text)
+                        if m:
+                            clean = m.group(0).replace(" ", "").strip()
+                            if len(clean) >= 16:
+                                # Skip if it contains the username (case insensitive)
+                                if clean.lower()  in  ig_username.lower():
+                                    print(f"   [Step 4] Skipped potential key containing username: {clean}")
+                                    continue
+                                secret_key = clean; break
 
                     if not secret_key:
                         inputs = self.driver.find_elements(By.TAG_NAME, "input")
@@ -568,12 +624,17 @@ class Instagram2FAStep:
                             val = inp.get_attribute("value")
                             if val:
                                 clean_val = val.replace(" ", "").strip()
-                                if len(clean_val) >= 16 and re.match(r'^[A-Z2-7]+$', clean_val): secret_key = clean_val; break
-                    if secret_key: break
+                                if len(clean_val) >= 16 and re.match(r'^[A-Z2-7]+$', clean_val):
+                                    # Skip if it contains the username
+                                    if ig_username.lower() in clean_val.lower():
+                                        print(f"   [Step 4] Skipped potential key from input containing username: {clean_val}")
+                                        continue
+                                    secret_key = clean_val; break
+                    if len(secret_key) >= 16: break
                 except Exception as e:
                     if "STOP_FLOW" in str(e): raise e
                     pass
-                time.sleep(1)
+                time.sleep(0.5)  # Giảm từ 1s xuống 0.5s để poll nhanh hơn
 
             if secret_key: return secret_key
             else:

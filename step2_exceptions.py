@@ -538,7 +538,7 @@ class InstagramExceptionStep:
             # fail 
             print("   [Step 2] Detected 'Get Help Logging In' - Failing out of flow.")
             self._take_exception_screenshot("GET_HELP_LOG_IN_DETECTED", "Get Help Logging In screen detected")
-            raise Exception("GET_HELP_LOG_IN_DETECTED")
+            raise Exception("GET_HELP_LOG_IN")
 
         success_statuses = [
             "LOGGED_IN_SUCCESS", "COOKIE_CONSENT", "TERMS_AGREEMENT", 
@@ -870,7 +870,48 @@ class InstagramExceptionStep:
                         print(f"   [Step 2] Status after force close: {new_status}")
                     except Exception as e:
                         print(f"   [Step 2] Force close failed: {e}")
+                    
+                return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+        
+        if status == "CONFIRM_YOUR_ACCOUNTS":
+            print("   [Step 2] Handling 'Confirm Your Accounts' (Meta Accounts Center)...")
+            
+            # 1. Click nút "Get started" / "Bắt đầu"
+            clicked_start = self._robust_click_button([
+                ("xpath", "//button[contains(text(), 'Get started')]"),
+                ("xpath", "//div[@role='button'][contains(text(), 'Get started')]"),
+                ("xpath", "//button[contains(text(), 'Bắt đầu')]"),
+                ("xpath", "//div[@role='button'][contains(text(), 'Bắt đầu')]"),
+                ("css", "button._acan._acap._acas") # Class thường dùng cho nút xanh primary
+            ], timeout=10)
+            
+            if clicked_start:
+                print("   [Step 2] Clicked 'Get started'. Waiting for next state...")
+                time.sleep(3) # Chờ animation/load
+                
+                # 2. Xử lý màn hình phụ (Có thể hỏi "Combine info?" hoặc "Add account?")
+                # Thường chọn "Not now" (Lúc khác) để an toàn, hoặc "Yes" nếu bắt buộc.
+                # Ở đây ta ưu tiên tìm nút đóng hoặc Not now nếu nó hiện ra popup tiếp theo.
+                
+                # Thử tìm nút "Not now" / "Lúc khác" nếu Meta hỏi gộp tài khoản
+                self._robust_click_button([
+                    ("xpath", "//span[contains(text(), 'Not now')]"),
+                    ("xpath", "//span[contains(text(), 'Lúc khác')]"),
+                    ("xpath", "//div[@role='button'][contains(text(), 'Not now')]")
+                ], timeout=3, retries=1)
+            else:
+                print("   [Step 2] Warning: Could not click 'Get started'.")
+
+            # 3. Reload lại trang chủ để kiểm tra kết quả
+            print("   [Step 2] Refreshing page to verify bypass...")
+            self.driver.get("https://www.instagram.com/")
+            WebDriverWait(self.driver, 20).until(lambda d: d.execute_script("return document.readyState") == "complete")
+            time.sleep(3)
+            
+            new_status = self._check_verification_result()
+            # Đệ quy để kiểm tra lại trạng thái mới
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
         if status == "REQUIRE_PASSWORD_CHANGE":
@@ -1780,7 +1821,7 @@ class InstagramExceptionStep:
                     return "LOGGED_IN_SUCCESS"
                 
                 # use another profile va log into instagram => dang nhap lai voi data moi 
-                if 'log into instagram' in body_text or 'use another profile' in body_text:
+                if 'log into instagram' in body_text or 'use another profile' in body_text or "create new account" in body_text:
                     return "RETRY_UNUSUAL_LOGIN"  
                 
                 if 'save your login info' in body_text or 'we can save your login info' in body_text or 'lưu thông tin đăng nhập' in body_text:

@@ -133,9 +133,9 @@ class InstagramLoginStep:
         # Chờ trang web load xong sau khi nhấn Login (đợi URL thay đổi)
         initial_url = self.driver.current_url
         start_time = time.time()
-        while time.time() - start_time < 30:
+        while time.time() - start_time < 40:
             if self.driver.current_url != initial_url:
-                wait_dom_ready(self.driver, timeout=10)
+                wait_dom_ready(self.driver, timeout=20)
                 break
             time.sleep(1)
         status = self._wait_for_login_result(timeout=120)
@@ -158,7 +158,7 @@ class InstagramLoginStep:
         print(f"   [Step 1] Login result detected: {status}")
         return status
 
-    def _wait_for_login_result(self, timeout=120):
+    def _wait_for_login_result(self, timeout=180):
         print("   [Step 1] Waiting for login result...")
         end_time = time.time() + timeout
         
@@ -172,6 +172,12 @@ class InstagramLoginStep:
             
             time.sleep(3)  # Poll nhẹ
             
+        print(f"   [Step 1] Timeout reached after {timeout} seconds. Current URL: {self.driver.current_url}")
+        try:
+            body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+            print(f"   [Step 1] Body text at timeout: {body_text[:500]}...")  # First 500 chars
+        except Exception as e:
+            print(f"   [Step 1] Could not get body text at timeout: {e}")
         return "TIMEOUT_LOGIN_CHECK"
     def _detect_initial_status(self):
         """
@@ -183,6 +189,12 @@ class InstagramLoginStep:
             
             # Check URL for cookie choice
             current_url = self.driver.current_url.lower()
+            
+            # unblock in url 
+            if "unblock" in current_url:
+                return "UNBLOCK_ACCOUNT"
+            
+            
             if "user_cookie_choice" in current_url:
                 return "COOKIE_CONSENT_POPUP"
             
@@ -210,6 +222,10 @@ class InstagramLoginStep:
                        "incorrect username or password" in body_text or \
                         "thông tin đăng nhập bạn đã nhập không chính xác" in body_text:
                 return "LOGIN_FAILED_INCORRECT"
+            
+            # Use another profile => Văng về chọn tài khoản
+            if "use another profile" in body_text or "Log into Instagram" in body_text or "create new account" in body_text:
+                return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION"
             
             if "choose a way to recover" in body_text:
                 return "RECOVERY_CHALLENGE"
@@ -250,12 +266,19 @@ class InstagramLoginStep:
             if "we noticed unusual activity" in body_text or "change your password" in body_text or "yêu cầu đổi mật khẩu" in body_text:
                 return "REQUIRE_PASSWORD_CHANGE"
             
+            if 'for you' in body_text or 'following' in body_text or 'suggested for you' in body_text or 'get fresh updates here when you follow accounts' in body_text: 
+                return "LOGGED_IN_SUCCESS"
             # Nếu đã vào trong (có Post/Follower/Nav bar)
-            if "posts" in body_text or "followers" in body_text or "search" in body_text or "home" in body_text:
+            if "posts" in body_text or "followers" in body_text or "search" in body_text or "home" in body_text or "suggestions for you" in body_text:
                 return "LOGGED_IN_SUCCESS"
 
             if("save your login info?" in body_text or "we can save your login info on this browser so you don't need to enter it again." in body_text or "lưu thông tin đăng nhập của bạn" in body_text or "save info" in body_text):
                 return "LOGGED_IN_SUCCESS"
+            
+            # [NEW] Detect "Confirm your accounts" (Meta Accounts Center)
+            if "confirm your accounts" in body_text or "xác nhận tài khoản của bạn" in body_text:
+                if "get started" in body_text or "bắt đầu" in body_text:
+                    return "CONFIRM_YOUR_ACCOUNTS"
             
             
             
@@ -279,6 +302,11 @@ class InstagramLoginStep:
                     # you need to request help logging in To secure your account, you need to request help logging in
                     if "you need to request help logging in" in body_text or "to secure your account, you need to request help logging in" in body_text:
                         return "GET_HELP_LOG_IN"
+                    
+                    # [NEW] Detect "Confirm your accounts" (Meta Accounts Center)
+                    if "confirm your accounts" in body_text or "xác nhận tài khoản của bạn" in body_text:
+                        if "get started" in body_text or "bắt đầu" in body_text:
+                            return "CONFIRM_YOUR_ACCOUNTS"
                     
                     # We Detected An Unusual Login Attempt 
                     if ("we detected an unusual login attempt" in body_text or "to secure your account, we'll send you a security code." in body_text) :
@@ -362,7 +390,7 @@ class InstagramLoginStep:
                         return "2FA_APP"
 
                     # Use another profile => Văng về chọn tài khoản
-                    if "use another profile" in body_text or "Log into Instagram" in body_text:
+                    if "use another profile" in body_text or "Log into Instagram" in body_text or "create new account" in body_text:
                         return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION"
 
                     
@@ -405,7 +433,13 @@ class InstagramLoginStep:
 
                     # Nếu có loading hoặc url không đổi thì tiếp tục chờ
                     if loading_found or current_url == last_url:
-                        if time.time() - start_time > 120:
+                        if time.time() - start_time > 180:
+                            print(f"   [Step 1] Inner loop timeout after 180 seconds. Current URL: {current_url}")
+                            try:
+                                body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+                                print(f"   [Step 1] Body text at inner timeout: {body_text[:500]}...")
+                            except Exception as e:
+                                print(f"   [Step 1] Could not get body text at inner timeout: {e}")
                             break
                         time.sleep(1)
                         last_url = current_url

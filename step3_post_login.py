@@ -56,10 +56,14 @@ class InstagramPostLoginStep:
         
         end_time = time.time() + 120  # Quét trong 120 giây 
         popup_handling_attempts = 0
-        max_popup_attempts = 10  # Prevent infinite loops
+        max_popup_attempts = 20  # Prevent infinite loops
         
         while time.time() < end_time and popup_handling_attempts < max_popup_attempts: 
             try:
+                # Scroll nhẹ để đảm bảo element không bị che trước mỗi lần scan
+                self.driver.execute_script("window.scrollBy(0, 50);")
+                time.sleep(0.5)
+                
                 # ---------------------------------------------------------
                 # 0. INDIVIDUAL POPUP HANDLERS (Riêng lẻ cho từng loại)
                 # ---------------------------------------------------------
@@ -101,6 +105,9 @@ class InstagramPostLoginStep:
                 # 1. SEQUENTIAL SCAN (POPUP + HOME) BẰNG JS
                 # ---------------------------------------------------------
                 action_result = self.driver.execute_script("""
+                    // Scroll trước khi kiểm tra popup
+                    window.scrollBy(0, 50);
+                    
                     // 1. KIỂM TRA HOME TRƯỚC (Điều kiện thoát nhanh)
                     // Nếu thấy icon Home và không có dialog nào che -> Báo về Home ngay
                     var homeIcon = document.querySelector("svg[aria-label='Home']") || document.querySelector("svg[aria-label='Trang chủ']");
@@ -126,6 +133,7 @@ class InstagramPostLoginStep:
 
                     // --- ƯU TIÊN: POPUP "ACCOUNTS CENTER" ---
                     if (keywords.account_center_check.some(k => bodyText.includes(k))) {
+                        window.scrollBy(0, 50);
                         let buttons = document.querySelectorAll('button, div[role="button"], span');
                         for (let btn of buttons) {
                             let t = btn.innerText.toLowerCase().trim();
@@ -147,6 +155,7 @@ class InstagramPostLoginStep:
                         if (visualCircle) visualCircle.click();
 
                         // Auto click Agree sau 1s
+                        window.scrollBy(0, 50);
                         setTimeout(() => {
                             let btns = document.querySelectorAll('button, div[role="button"]');
                             for(let b of btns) {
@@ -165,6 +174,9 @@ class InstagramPostLoginStep:
                         }
                     }
 
+                    // Scroll before handling options
+                    window.scrollBy(0, 50);
+
                     // A. TÌM VÀ CHỌN OPTION (Use Data)
                     const labels = document.querySelectorAll('div, span, label');
                     for (let el of labels) {
@@ -177,6 +189,7 @@ class InstagramPostLoginStep:
                     }
 
                     // B. TÌM VÀ CLICK NÚT BẤM CHUNG
+                    window.scrollBy(0, 50);
                     const elements = document.querySelectorAll('button, div[role="button"]');
                     for (let el of elements) {
                         if (el.offsetParent === null) continue; 
@@ -212,6 +225,7 @@ class InstagramPostLoginStep:
                     try:
                         # Check again for any remaining dialogs or overlays
                         final_check = self.driver.execute_script("""
+                            window.scrollBy(0, 50);
                             var dialogs = document.querySelectorAll('div[role="dialog"], div[role="alertdialog"], div[aria-modal="true"]');
                             var hasVisibleDialog = Array.from(dialogs).some(d => d.offsetParent !== null && d.getAttribute('aria-hidden') !== 'true');
                             
@@ -306,6 +320,8 @@ class InstagramPostLoginStep:
         try:
             # Try to click Continue or This Was Me buttons
             continue_buttons = self.driver.execute_script("""
+                // Scroll before handling
+                window.scrollBy(0, 50);
                 var buttons = document.querySelectorAll('button, div[role="button"]');
                 var found = [];
                 for (var btn of buttons) {
@@ -350,6 +366,9 @@ class InstagramPostLoginStep:
             
             for dialog in dialogs:
                 if dialog.is_displayed():
+                    # Scroll to the dialog first
+                    self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", dialog)
+                    time.sleep(0.5)
                     # Find buttons inside the dialog
                     buttons = dialog.find_elements(By.CSS_SELECTOR, "button, div[role='button']")
                     
@@ -381,6 +400,9 @@ class InstagramPostLoginStep:
     def _handle_age_verification(self):
         """Handle age verification popup individually."""
         try:
+            # Scroll before handling
+            self.driver.execute_script("window.scrollBy(0, 50);")
+            time.sleep(0.5)
             radio = self.driver.find_element(By.CSS_SELECTOR, 'input[type="radio"][value="above_18"]')
             radio.click()
             
@@ -415,6 +437,9 @@ class InstagramPostLoginStep:
     def _handle_accounts_center(self):
         """Handle accounts center popup individually."""
         try:
+            # Scroll before handling
+            self.driver.execute_script("window.scrollBy(0, 50);")
+            time.sleep(0.5)
             body_text = self.driver.find_element(By.TAG_NAME, 'body').text.lower()
             if 'choose an option' in body_text or 'accounts center' in body_text or 'use data across accounts' in body_text:
                 buttons = self.driver.find_elements(By.CSS_SELECTOR, 'button, div[role="button"], span')
@@ -429,6 +454,9 @@ class InstagramPostLoginStep:
     def _handle_cookie_consent(self):
         """Handle cookie consent popup individually."""
         try:
+            # Scroll before handling
+            self.driver.execute_script("window.scrollBy(0, 50);")
+            time.sleep(0.5)
             buttons = self.driver.find_elements(By.CSS_SELECTOR, 'button, div[role="button"]')
             for b in buttons:
                 if 'allow all cookies' in b.text.lower() or 'cho phép tất cả' in b.text.lower():
