@@ -391,7 +391,10 @@ class Instagram2FAStep:
                     acc_selected = True; wait_dom_ready(self.driver, timeout=5); break
                 else: time.sleep(1)
             except: time.sleep(1)
-        if not acc_selected: print("   [Step 4] Warning: Select Account failed (May already be inside).")
+        if not acc_selected: 
+            print("   [Step 4] Warning: Select Account failed (May already be inside).")
+            return False
+        return acc_selected
 
     def _get_page_state(self):
         # [UPDATED] JS Sensor nhanh + check Content Unavailable
