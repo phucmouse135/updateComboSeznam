@@ -137,7 +137,7 @@ class InstagramLoginStep:
             if self.driver.current_url != initial_url:
                 wait_dom_ready(self.driver, timeout=20)
                 break
-            time.sleep(1)
+            time.sleep(5)
         status = self._wait_for_login_result(timeout=120)
         
         # Handle cookie consent popup after login if detected
@@ -222,6 +222,10 @@ class InstagramLoginStep:
                        "incorrect username or password" in body_text or \
                         "thông tin đăng nhập bạn đã nhập không chính xác" in body_text:
                 return "LOGIN_FAILED_INCORRECT"
+            
+            #  We couldn't connect to Instagram. Make sure you're connected to the internet and try again. 
+            if "we couldn't connect to instagram" in body_text and "make sure you're connected to the internet" in body_text:
+                return "NOT_CONNECT_INSTAGRAM"
             
             # Use another profile => Văng về chọn tài khoản
             if "use another profile" in body_text or "Log into Instagram" in body_text or "create new account" in body_text:
@@ -318,6 +322,10 @@ class InstagramLoginStep:
                         if "this was me" in body_text or "let us know if it was you" in body_text:
                             return "CONFIRM_TRUSTED_DEVICE"
                         return "CONTINUE_UNUSUAL_LOGIN_PHONE"
+                    
+                    # Check for no internet connection
+                    if "we couldn't connect to instagram" in body_text and "make sure you're connected to the internet" in body_text:
+                        return "NOT_CONNECT_INSTAGRAM"
                 
                     if "choose a way to recover" in body_text:
                         return "RECOVERY_CHALLENGE"
