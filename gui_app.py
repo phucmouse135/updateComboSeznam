@@ -570,6 +570,12 @@ class AutomationGUI:
         """
         try:
             values = self.tree.item(item_id)['values']
+            # Không ghi case có ERROR_2FA vào success.txt
+            if result_type == "success":
+                twofa_val = str(values[4]).strip()
+                if twofa_val.startswith("ERROR_2FA"):
+                    return  # Không ghi
+            
             filename = {
                 "success": "success.txt",
                 "2fa": "2fa.txt", 
