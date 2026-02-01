@@ -60,6 +60,16 @@ class InstagramPostLoginStep:
         
         while time.time() < end_time and popup_handling_attempts < max_popup_attempts: 
             try:
+                # Try to click on visible dialog to focus before scrolling
+                try:
+                    dialogs = self.driver.find_elements(By.CSS_SELECTOR, "div[role='dialog'], div[role='alertdialog'], div[aria-modal='true']")
+                    for dialog in dialogs:
+                        if dialog.is_displayed():
+                            # Click on the dialog to focus it
+                            self.driver.execute_script("arguments[0].click();", dialog)
+                            break
+                except: pass
+                
                 # Scroll nhẹ để đảm bảo element không bị che trước mỗi lần scan
                 self.driver.execute_script("window.scrollBy(0, 50);")
                 time.sleep(0.5)
@@ -98,6 +108,20 @@ class InstagramPostLoginStep:
                         wait_dom_ready(self.driver, timeout=10)
                         time.sleep(3)
                         return  # Exit after reload
+                    
+                    if "ig_sso_users" in current_url or "/api/v1/" in current_url or "error" in current_url:
+                        print(f"   [Step 3] Crash URL detected. Reloading Home...")
+                        self.driver.get("https://www.instagram.com/")
+                        time.sleep(4); continue
+
+                    if ("page isn’t working" in body_text or "http error" in body_text or
+                        'something went wrong' in body_text or 'đã xảy ra sự cố' in body_text or
+                        "this page isn’t working" in body_text or 'the site is temporarily unavailable' in body_text or
+                        "reload" in body_text or "HTTP ERROR" in body_text or "HTTP 500" in body_text or
+                        "HTTP 502" in body_text or "HTTP 504" in body_text or "useragent mismatch" in body_text):
+                        print("   [Step 3] Error page detected. Reloading Home...")
+                        self.driver.get("https://www.instagram.com/")
+                        time.sleep(4); continue
                 except Exception as e:
                     print(f"   [Step 3] Error checking for ad subscription: {e}")
                 
@@ -291,8 +315,12 @@ class InstagramPostLoginStep:
                         time.sleep(4); continue
 
                     body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
-                    if "page isn’t working" in body_text or "http error" in body_text:
-                        print("   [Step 3] Crash Text detected. Reloading Home...")
+                    if ("page isn’t working" in body_text or "http error" in body_text or
+                        'something went wrong' in body_text or 'đã xảy ra sự cố' in body_text or
+                        "this page isn’t working" in body_text or 'the site is temporarily unavailable' in body_text or
+                        "reload" in body_text or "HTTP ERROR" in body_text or "HTTP 500" in body_text or
+                        "HTTP 502" in body_text or "HTTP 504" in body_text or "useragent mismatch" in body_text):
+                        print("   [Step 3] Error page detected. Reloading Home...")
                         self.driver.get("https://www.instagram.com/")
                         time.sleep(4); continue
                 except: pass
@@ -303,7 +331,6 @@ class InstagramPostLoginStep:
                 popup_handling_attempts += 1
                 time.sleep(1)
         
-        # Check if we exceeded max popup handling attempts
         if popup_handling_attempts >= max_popup_attempts:
             print(f"   [Step 3] Exceeded max popup handling attempts ({max_popup_attempts}). Proceeding anyway.")
             return  # Exit the method to continue with navigation
