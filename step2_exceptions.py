@@ -526,10 +526,24 @@ class InstagramExceptionStep:
         # DATA_PROCESSING_FOR_ADS
         if status == "DATA_PROCESSING_FOR_ADS":
             print("   [Step 2] Handling Data Processing For Ads...")
+            # click not now 
+            self._robust_click_button([
+                ("xpath", "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'not now')]"),
+                ("xpath", "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'skip')]"),
+                ("css", "button[data-testid*='not-now'], button[aria-label*='not now']"),
+                ("css", "button")  # Last resort - any button
+            ])
+            time.sleep(2)
+            wait_dom_ready(self.driver, timeout=20)
+
             # redirect to instagram home to bypass
             self.driver.get("https://www.instagram.com/")
             WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
+            time.sleep(2)
             new_status = self._check_verification_result()
+            if new_status == status:
+                print("   [Step 2] Status unchanged after handling Data Processing For Ads, trying to navigate away")
+                new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
             
@@ -644,6 +658,29 @@ class InstagramExceptionStep:
                 new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
+        # POST_VIOLATES_COMMUNITY_STANDARDS 
+        if status == "POST_VIOLATES_COMMUNITY_STANDARDS":
+            # click OK 
+            print("   [Step 2] Handling Post Violates Community Standards...")
+            self._robust_click_button([
+                ("xpath", "//button[contains(text(), 'OK')]"),
+                ("css", "button[type='button']"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim().toLowerCase().includes('ok')) {
+                            return buttons[i];
+                        }
+                    return null;
+                """)
+            ])
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            time.sleep(2)
+            new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+
         # RETRY LOGIN
         if status == "RETRY_LOGIN":
             print("   [Step 2] Handling Retry Login...")
@@ -662,7 +699,7 @@ class InstagramExceptionStep:
                 """)
             ])
             WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
-                
+            time.sleep(2)
             # Nhap lai password
             password_input = wait_element(self.driver, By.NAME, "password", timeout=10)
             if password_input:
@@ -1863,9 +1900,66 @@ class InstagramExceptionStep:
                 if 'we suspect automated behavior on your account' in body_text or 'prevent your account from being temporarily ' in body_text or 'verify you are a real person' in body_text or 'suspicious activity' in body_text:
                     return "UNUSUAL_ACTIVITY_DETECTED"
                 
+                if "the login information you entered is incorrect" in body_text or \
+                       "incorrect username or password" in body_text or \
+                        "thông tin đăng nhập bạn đã nhập không chính xác" in body_text:
+                    return "LOGIN_FAILED_INCORRECT"
+                
+                if "enter the 6-digit code we sent to the number ending in" in body_text:
+                    return "CHECKPOINT_PHONE"
+            
+                # enter your email
+                if "enter your email" in body_text or "please enter your email address to continue" in body_text:
+                    return "DISABLE_ACCOUNT"
+                
+                # Log in on another device to continue
+                if "log in on another device to continue" in body_text or "đăng nhập trên thiết bị khác để tiếp tục" in body_text:
+                    return "LOG_IN_ANOTHER_DEVICE"
+                
+                if "add phone number to get back into instagram" in body_text or "send confirmation" in body_text or "log into another account" in body_text or "we will send a confirmation code via sms to your phone." in body_text: 
+                    return "SUSPENDED_PHONE"
+                # this was me / let us know if it was you
+                if "this was me" in body_text or "let us know if it was you" in body_text or "to secure your account" in body_text:
+                    return "CONFIRM_TRUSTED_DEVICE"
+                
+                if "check your text messages" in body_text or "kiểm tra tin nhắn văn bản của bạn" in body_text:
+                    return "2FA_TEXT_MESSAGE"
+                
+                # Help us confirm it's you
+                if "help us confirm it's you" in body_text or "xác nhận đó là bạn" in body_text:
+                    return "CONFIRM_YOUR_IDENTITY"
+                
+                # SMS 2FA screen "Enter a 6-digit login code generated by an authentication app." or vietnamese
+                if "mã đăng nhập 6 chữ số được tạo bởi ứng dụng xác thực" in body_text or "enter a 6-digit login code generated by an authentication app." in body_text:
+                    return "2FA_SMS"
+
+                    # Check your WhatsApp messages 
+                if "check your whatsapp messages" in body_text or "kiểm tra tin nhắn whatsapp của bạn" in body_text or "we sent via whatsapp to" in body_text:
+                    return "2FA_WHATSAPP"
+                
+                # your post goes against our community standards / How we make decisions
+                if "your post goes against our community standards" in body_text or "bài đăng của bạn vi phạm các tiêu chuẩn cộng đồng của chúng tôi" in body_text or "how we make decisions" in body_text:
+                    return "POST_VIOLATES_COMMUNITY_STANDARDS"
+
+
+                    # Confirm your info on the app 
+                if "confirm your info on the app" in body_text:
+                    return "2FA_APP"
+                
                 #  Check your email or This email will replace all existing contact and login info on your account
                 if 'check your email' in body_text or 'this email will replace all existing contact and login info on your account' in body_text:
                     return "CHECKPOINT_MAIL"
+                
+                #  We couldn't connect to Instagram. Make sure you're connected to the internet and try again. 
+                if "we couldn't connect to instagram" in body_text and "make sure you're connected to the internet" in body_text:
+                    return "NOT_CONNECT_INSTAGRAM"
+                
+                if "choose a way to recover" in body_text:
+                    return "RECOVERY_CHALLENGE"
+                
+                # Choose if we process your data for ads
+                if "choose if we process your data for ads" in body_text or "chọn nếu chúng tôi xử lý dữ liệu của bạn cho quảng cáo" in body_text:
+                    return "DATA_PROCESSING_FOR_ADS"
                 
                 if 'change password' in body_text or 'new password' in body_text or 'create a strong password' in body_text or 'change your password to secure your account' in body_text:
                     # nếu có new confirm new password thì require change password
@@ -1953,6 +2047,17 @@ class InstagramExceptionStep:
                 # Check if "get new code" option is available
                 if 'get a new one' in body_text or 'get new code' in body_text or 'get a new code' in body_text or 'didn\'t get a code' in body_text or 'didn\'t receive' in body_text or 'resend' in body_text or 'send new code' in body_text or 'request new code' in body_text:
                     return "CAN_GET_NEW_CODE"
+                
+                if "log into instagram" in body_text or "password" in body_text or "mobile number, username, or email" in body_text or "log in with facebook" in body_text or "create new account" in body_text:
+                    self.count += 1
+                    if self.count >=20:
+                        return "LOGIN_FAILED"
+                    
+                    # Nếu vẫn còn ô password -> Login chưa qua (có thể đang loading)
+                if len(self.driver.find_elements(By.CSS_SELECTOR, "input[type='password']")) > 0:
+                    self.count += 1
+                    if self.count >=20:
+                        return "LOGIN_FAILED_RETRY"
                 
                 consecutive_failures = 0  # Reset on successful check
             except Exception as e:

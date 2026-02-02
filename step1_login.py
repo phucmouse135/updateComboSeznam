@@ -411,6 +411,9 @@ class InstagramLoginStep:
                         if "log into instagram" in body_text:
                             return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION"
 
+                    # your post goes against our community standards / How we make decisions
+                    if "your post goes against our community standards" in body_text or "bài đăng của bạn vi phạm các tiêu chuẩn cộng đồng của chúng tôi" in body_text or "how we make decisions" in body_text:
+                        return "POST_VIOLATES_COMMUNITY_STANDARDS"
                     
 
                     # Check your notifications  && Check your notifications there and approve the login to continue.
