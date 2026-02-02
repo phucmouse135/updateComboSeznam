@@ -1977,9 +1977,6 @@ class InstagramExceptionStep:
                 if 'select your birthday' in body_text or 'add your birthday' in body_text:
                     return "BIRTHDAY_SCREEN"
                 
-                if 'posts' in body_text or 'save your login info' in body_text:
-                    return "SUCCESS"
-                
                 if 'suspended' in body_text or 'đình chỉ' in body_text:
                     return "SUSPENDED"
                 # some thing wrong 
