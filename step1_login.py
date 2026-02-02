@@ -220,7 +220,7 @@ class InstagramLoginStep:
             # The login information you entered is incorrect
             if "the login information you entered is incorrect" in body_text or \
                        "incorrect username or password" in body_text or \
-                        "thông tin đăng nhập bạn đã nhập không chính xác" in body_text:
+                        "thông tin đăng nhập bạn đã nhập không chính xác" in body_text or "find your account and log in" in body_text:
                 return "LOGIN_FAILED_INCORRECT"
             
             #  We couldn't connect to Instagram. Make sure you're connected to the internet and try again. 

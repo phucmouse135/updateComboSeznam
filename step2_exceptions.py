@@ -1902,7 +1902,7 @@ class InstagramExceptionStep:
                 
                 if "the login information you entered is incorrect" in body_text or \
                        "incorrect username or password" in body_text or \
-                        "thông tin đăng nhập bạn đã nhập không chính xác" in body_text:
+                        "thông tin đăng nhập bạn đã nhập không chính xác" in body_text or "find your account and log in" in body_text:
                     return "LOGIN_FAILED_INCORRECT"
                 
                 if "enter the 6-digit code we sent to the number ending in" in body_text:
