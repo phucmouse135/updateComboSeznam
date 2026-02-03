@@ -319,6 +319,10 @@ class InstagramLoginStep:
                         if "get started" in body_text or "bắt đầu" in body_text:
                             return "CONFIRM_YOUR_ACCOUNTS"
                         
+                    # keep using your personal data across these accounts / use data across accounts / manage accounts
+                    if "keep using your personal data across these accounts" in body_text or "use data across accounts" in body_text or "manage accounts" in body_text:
+                        return "ACCOUNTS_CENTER_DATA_SHARING"
+                        
                     if "the login information you entered is incorrect" in body_text or \
                        "incorrect username or password" in body_text or \
                         "thông tin đăng nhập bạn đã nhập không chính xác" in body_text:

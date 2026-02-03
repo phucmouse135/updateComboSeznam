@@ -681,6 +681,38 @@ class InstagramExceptionStep:
                 new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
+        # ACCOUNTS_CENTER_DATA_SHARING
+        if status == "ACCOUNTS_CENTER_DATA_SHARING":
+            print("   [Step 2] Handling Accounts Center Data Sharing...")
+            # click radio button use data across accounts
+            self._robust_click_button([("xpath", "//input[@type='radio' and (contains(@value, 'yes') or contains(@aria-label, 'Yes'))]"),
+                ("css", "input[type='radio'][value='yes'], input[type='radio'][aria-label*='Yes']")
+            ])
+            time.sleep(1)
+            wait_dom_ready(self.driver, timeout=10)
+            
+            # click next 
+            self._robust_click_button([
+                ("xpath", "//button[contains(text(), 'Next')]"),
+                ("css", "button[type='submit']"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim().toLowerCase().includes('next')) {
+                            return buttons[i];
+                        }
+                    return null;
+                """)
+            ])
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            time.sleep(2)
+            
+            new_status = self._check_verification_result()
+            if new_status == status:
+                
+                new_status = self._check_status_change_with_timeout(status, 15)
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+        
         # RETRY LOGIN
         if status == "RETRY_LOGIN":
             print("   [Step 2] Handling Retry Login...")
@@ -1907,6 +1939,10 @@ class InstagramExceptionStep:
                 
                 if "enter the 6-digit code we sent to the number ending in" in body_text:
                     return "CHECKPOINT_PHONE"
+                
+                # keep using your personal data across these accounts / use data across accounts / manage accounts
+                if "keep using your personal data across these accounts" in body_text or "use data across accounts" in body_text or "manage accounts" in body_text:
+                    return "ACCOUNTS_CENTER_DATA_SHARING"
             
                 # enter your email
                 if "enter your email" in body_text or "please enter your email address to continue" in body_text:

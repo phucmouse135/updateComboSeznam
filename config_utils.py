@@ -31,6 +31,8 @@ def ensure_chromedriver():
 
 def get_driver(headless=True , window_rect=None, user_data_dir=None):
     options = Options()
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
     if headless:
         options.add_argument("--headless=new") 
         
@@ -93,6 +95,7 @@ def get_driver(headless=True , window_rect=None, user_data_dir=None):
     try:
         service = Service(_get_chromedriver_path())
         driver = webdriver.Chrome(service=service, options=options)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         driver.set_page_load_timeout(60) 
         driver.set_script_timeout(60)
