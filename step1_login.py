@@ -223,6 +223,10 @@ class InstagramLoginStep:
                         "thông tin đăng nhập bạn đã nhập không chính xác" in body_text or "find your account and log in" in body_text:
                 return "LOGIN_FAILED_INCORRECT"
             
+            # We suspect automated behavior on your account
+            if 'we suspect automated behavior on your account' in body_text or 'prevent your account from being temporarily ' in body_text or 'verify you are a real person' in body_text or 'suspicious activity' in body_text:
+                return "UNUSUAL_ACTIVITY_DETECTED"
+            
             #  We couldn't connect to Instagram. Make sure you're connected to the internet and try again. 
             if "we couldn't connect to instagram" in body_text and "make sure you're connected to the internet" in body_text:
                 return "NOT_CONNECT_INSTAGRAM"
