@@ -111,7 +111,7 @@ class Instagram2FAStep:
                 if state in ['SELECT_APP', 'CHECKPOINT', 'ALREADY_ON', 'RESTRICTED', 'OTP_INPUT_SCREEN']: 
                     break
                 
-                time.sleep(0.5)
+                time.sleep(1)
 
             print(f"   [Step 4] Detected State: {state}")
 
