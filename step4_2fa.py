@@ -72,6 +72,9 @@ class Instagram2FAStep:
             acc_selected = self._select_account_center_profile(target_username)
             if not acc_selected:
                 raise Exception("STOP_FLOW_2FA: Account selection failed")
+            
+            wait_dom_ready(self.driver, timeout=5)
+            time.sleep(2)  # Chờ thêm 2s để trang ổn định
 
             # -------------------------------------------------
             # STEP 2: SCAN STATE & HANDLE EXCEPTIONS

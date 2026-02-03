@@ -382,7 +382,11 @@ class AutomationGUI:
                 end_time = time.time()
                 elapsed = end_time - start_time
                 note_time = f"Done in {elapsed:.1f}s"
-                self.msg_queue.put(("SUCCESS", (item_id, key_raw, note_time)))
+                # neu cot 2fa da co loi ERROR_2FA thi ghi vao 2fa.txt
+                if "ERROR_2FA" in key:
+                    self.msg_queue.put(("FAIL_2FA", (item_id, key, note_time)))
+                else:
+                    self.msg_queue.put(("SUCCESS", (item_id, key_raw, note_time)))
             except Exception as e:
                 # Handle step 4 specific errors
                 end_time = time.time()
