@@ -6,9 +6,12 @@ import time
 import socket
 from email.header import decode_header
 
-# Cấu hình GMX
-IMAP_SERVER = "imap.gmx.net"
+# --- CẤU HÌNH SEZNAM ---
+IMAP_SERVER = "imap.seznam.cz"
 IMAP_PORT = 993
+
+# Danh sách folder cần quét
+TARGET_FOLDERS = ["newsletters", "spam", "INBOX"]
 
 def _decode_str(header_value):
     if not header_value: return ""
@@ -24,111 +27,163 @@ def _decode_str(header_value):
     except:
         return str(header_value)
 
-def _fetch_latest_unseen_mail(gmx_user, gmx_pass, subject_keywords, target_username=None, target_email=None, loop_duration=45):
-    if not gmx_user or not gmx_pass: return None
-    if "@" not in gmx_user: gmx_user += "@gmx.net"
+def _fetch_latest_unseen_mail(email_user, email_pass, subject_keywords, target_username=None, target_email=None, loop_duration=45):
+    """
+    Phiên bản Fix: 
+    1. Mark Seen ngay lập tức để không lặp lại.
+    2. Regex chặn dấu chấm (.) để không bắt nhầm username dạng 78.969269
+    3. Xóa username khỏi body trước khi scan.
+    """
+    if not email_user or not email_pass: return None
+    if "@" not in email_user: email_user += "@seznam.cz" 
 
     mail = None
     start_time = time.time()
-    code_pattern = re.compile(r'\b(\d{6,8})\b')
+
+    # --- REGEX THÔNG MINH (STRICT MODE) ---
+    # (?<![._\-\d]): Đằng trước KHÔNG ĐƯỢC là dấu chấm, gạch dưới, gạch ngang, hoặc số
+    # (\d{6,8}|\d{3}\s\d{3}): Lấy 6-8 số hoặc dạng 123 456
+    # (?![._\-\d]): Đằng sau KHÔNG ĐƯỢC là dấu chấm, gạch dưới, gạch ngang, hoặc số
+    code_pattern = re.compile(r'(?<![._\-\d])\b(\d{6,8}|\d{3}\s\d{3})\b(?![._\-\d])')
 
     try:
-        socket.setdefaulttimeout(30)  # Increased timeout
+        socket.setdefaulttimeout(30)
         mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
         try:
-            mail.login(gmx_user, gmx_pass)
+            mail.login(email_user, email_pass)
         except Exception as e:
             if any(k in str(e).lower() for k in ["authentication failed", "login failed", "credentials"]):
-                raise Exception("GMX_DIE")
+                raise Exception("LOGIN_DIE")
             raise e
 
-        print(f"   [IMAP] Connected. Scanning for User: {target_username} | Mail: {target_email}... (timeout: {loop_duration}s)")
-
         while time.time() - start_time < loop_duration:
-            try:
-                mail.select("INBOX") 
-                status, messages = mail.uid('search', None, '(UNSEEN FROM "Instagram")')
-                
-                if status != "OK" or not messages[0]:
-                    time.sleep(2.5); continue
+            
+            for folder_name in TARGET_FOLDERS:
+                try:
+                    # Select folder (readonly=False để mark seen)
+                    status, _ = mail.select(f'"{folder_name}"', readonly=False)
+                    if status != "OK": continue
 
-                mail_ids = messages[0].split()
-                mail_ids.sort(key=int, reverse=True)
+                    status, messages = mail.search(None, 'ALL')
+                    if status != "OK" or not messages[0]: continue 
 
-                for mail_id in mail_ids[:3]:
-                    # --- LỚP 1: Check Header ---
-                    _, msg_header = mail.uid('fetch', mail_id, '(BODY.PEEK[HEADER])')
-                    header_content = email.message_from_bytes(msg_header[0][1])
+                    mail_ids = messages[0].split()
+                    recent_ids = mail_ids[-6:]
+                    recent_ids.reverse()
+
+                    for mail_id in recent_ids:
+                        # 1. Fetch Header & Flags
+                        _, fetch_data = mail.fetch(mail_id, '(BODY.PEEK[HEADER] FLAGS)')
+                        
+                        # Check đã đọc (Tránh loop vĩnh viễn mail cũ)
+                        is_read = False
+                        for item in fetch_data:
+                            if isinstance(item, bytes):
+                                if b'\\Seen' in item or b'\\SEEN' in item: is_read = True; break
+                            elif isinstance(item, tuple) and len(item) > 0:
+                                if b'\\Seen' in item[0] or b'\\SEEN' in item[0]: is_read = True; break
+                        
+                        if is_read: continue 
+
+                        # Parse Header
+                        msg_header = None
+                        for item in fetch_data:
+                            if isinstance(item, tuple):
+                                msg_header = email.message_from_bytes(item[1])
+                                break
+                        if not msg_header: continue
+
+                        subject = _decode_str(msg_header.get("Subject", "")).lower()
+                        sender = _decode_str(msg_header.get("From", "")).lower()
+                        to_addr = _decode_str(msg_header.get("To", "")).lower()
+
+                        # Filter cơ bản
+                        if "instagram" not in sender: continue
+                        if not any(k.lower() in subject for k in subject_keywords): continue 
+                        if target_email and target_email.lower().strip() not in to_addr: continue
+                        
+                        # [LOCK] MARK AS SEEN NGAY LẬP TỨC
+                        try: mail.store(mail_id, '+FLAGS', '\\Seen')
+                        except: pass
+
+                        # 2. Tải Body
+                        _, msg_data = mail.fetch(mail_id, "(BODY.PEEK[])") 
+                        full_msg = email.message_from_bytes(msg_data[0][1])
+                        body = ""
+                        if full_msg.is_multipart():
+                            for part in full_msg.walk():
+                                ctype = part.get_content_type()
+                                if ctype == "text/plain":
+                                    body += part.get_payload(decode=True).decode('utf-8', errors='ignore'); break
+                                elif ctype == "text/html":
+                                     body += part.get_payload(decode=True).decode('utf-8', errors='ignore')
+                        else:
+                            body = full_msg.get_payload(decode=True).decode('utf-8', errors='ignore')
+                        
+                        if not body: body = ""
+
+                        # --- [BƯỚC VỆ SINH QUAN TRỌNG] ---
+                        # Xóa sạch HTML tag
+                        clean_body = re.sub(r'<[^>]+>', ' ', body)
+                        # Chuyển về lowercase để xử lý
+                        clean_body_lower = clean_body.lower()
+
+                        # 3. XOÁ USERNAME KHỎI BODY (Tránh bắt nhầm số trong username)
+                        if target_username:
+                            u_name = target_username.lower().strip()
+                            
+                            # Xóa user nguyên bản (ví dụ: 78.969269)
+                            if u_name:
+                                clean_body_lower = clean_body_lower.replace(u_name, "")
+                            
+                            # Xóa user bỏ dấu (ví dụ: 78969269) đề phòng email hiển thị khác
+                            u_name_no_dot = u_name.replace(".", "").replace("_", "")
+                            if u_name_no_dot:
+                                clean_body_lower = clean_body_lower.replace(u_name_no_dot, "")
+
+                        # 4. Tìm Code bằng Regex "Khắt khe"
+                        matches = code_pattern.findall(clean_body_lower)
+                        
+                        if matches:
+                            for code_candidate in matches:
+                                final_code = code_candidate.replace(" ", "")
+                                
+                                # Kiểm tra độ dài
+                                if len(final_code) in [6, 8]:
+                                    # Chặn các số năm (False positive phổ biến)
+                                    if final_code in ["2024", "2025", "2026", "2027"]: 
+                                        continue
+                                    
+                                    # Kiểm tra lại lần cuối: Đảm bảo code tìm được KHÔNG nằm trong username (Double check)
+                                    if target_username and final_code in target_username.replace(".", ""):
+                                        print(f"   [IMAP Warning] Ignored code {final_code} because it looks like part of username.")
+                                        continue
+
+                                    print(f"   [IMAP] FOUND CODE: {final_code} for {target_username} in '{folder_name}'")
+                                    return final_code
                     
-                    subject = _decode_str(header_content.get("Subject", "")).lower()
-                    sender = _decode_str(header_content.get("From", "")).lower()
-                    to_addr = _decode_str(header_content.get("To", "")).lower() # Lấy địa chỉ người nhận
-
-                    is_relevant = any(k.lower() in subject for k in subject_keywords)
-                    if not is_relevant: continue 
-
-                    # MARK SEEN NGAY LẬP TỨC (Chống đọc lại)
-                    try: 
-                        mail.uid('store', mail_id, '+FLAGS', '\\Seen')
-                        print(f"   [IMAP] Marked mail {mail_id} as seen")
-                    except Exception as e:
-                        print(f"   [IMAP] Failed to mark seen: {e}")
-
-                    # --- LỚP 2: CHECK NGƯỜI NHẬN (QUAN TRỌNG NHẤT) ---
-                    # Nếu có truyền vào target_email (linked_mail), bắt buộc phải khớp
-                    if target_email:
-                        clean_target_mail = target_email.lower().strip()
-                        if clean_target_mail not in to_addr:
-                            print(f"   [IMAP] Skipped mail {mail_id}. 'To': {to_addr} != Target: {clean_target_mail}")
-                            continue
-                    
-                    # --- LỚP 3: Tải Body ---
-                    _, msg_data = mail.uid('fetch', mail_id, "(RFC822)")
-                    full_msg = email.message_from_bytes(msg_data[0][1])
-                    body = ""
-                    if full_msg.is_multipart():
-                        for part in full_msg.walk():
-                            if part.get_content_type() == "text/plain":
-                                body += part.get_payload(decode=True).decode('utf-8', errors='ignore'); break
-                    else:
-                        body = full_msg.get_payload(decode=True).decode('utf-8', errors='ignore')
-                    
-                    if not body: body = ""
-                    
-                    # --- LỚP 4: Validate Username (Fallback nếu không có target_email) ---
-                    # Chỉ check username nếu không có target_email (vì mail tối giản không có username)
-                    if target_username and not target_email:
-                        if target_username.lower().replace("@","") not in body.lower():
-                            print(f"   [IMAP] Skipped mail (Username mismatch).")
-                            continue
-
-                    # --- LỚP 5: Lấy Code ---
-                    match = code_pattern.search(body)
-                    if match:
-                        code = match.group(1)
-                        print(f"   [IMAP] FOUND CODE: {code} for {target_username}")
-                        return code
-                    
-            except Exception as loop_e:
-                print(f"   [IMAP Loop Warn] {loop_e}"); time.sleep(2)
+                except Exception:
+                    continue
+            
+            time.sleep(2.5)
+            try: mail.noop()
+            except: pass
         
         elapsed = time.time() - start_time
-        print(f"   [IMAP] Timeout after {elapsed:.1f}s: No verification code found for {target_username}")
-        print("   [IMAP] Possible reasons: Instagram didn't send email, email delayed, or wrong email address")
+        print(f"   [IMAP] Timeout {elapsed:.1f}s: No new code found")
         return None
 
     except Exception as e:
-        if str(e) == "GMX_DIE": raise e
+        if "LOGIN_DIE" in str(e): raise e
         print(f"   [IMAP Error] {e}"); return None
     finally:
         if mail:
             try: mail.close(); mail.logout()
             except: pass
 
-# --- UPDATE API: Thêm tham số target_email ---
-
+# ... (Các hàm get_verify_code_v2, get_2fa_code_v2 giữ nguyên) ...
 def get_verify_code_v2(gmx_user, gmx_pass, target_ig_username, target_email=None):
-    keywords = ["verify", "xác thực", "confirm", "code", "security", "mã bảo mật", "is your instagram code"]
+    keywords = ["verify", "xác thực", "confirm", "code", "security", "mã bảo mật", "is your instagram code", "bạn vừa yêu cầu"]
     return _fetch_latest_unseen_mail(gmx_user, gmx_pass, keywords, target_ig_username, target_email, loop_duration=30)
 
 def get_2fa_code_v2(gmx_user, gmx_pass, target_ig_username, target_email=None):

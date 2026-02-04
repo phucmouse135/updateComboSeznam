@@ -19,12 +19,12 @@ class AutomationGUI:
     def _on_password_changed(self, username, new_password):
         """
         Callback này sẽ được gọi khi đổi mật khẩu thành công.
-        Tìm dòng có username, cập nhật cột mật khẩu (index 3) trên treeview.
+        Tìm dòng có username, cập nhật cột mật khẩu (index 1) trên treeview.
         """
         for item_id in self.tree.get_children():
             vals = self.tree.item(item_id, "values")
-            if str(vals[2]) == str(username):
-                self.update_tree_item(item_id, {3: new_password})
+            if str(vals[0]) == str(username):
+                self.update_tree_item(item_id, {1: new_password})
                 break
 
     def __init__(self, root):
@@ -55,21 +55,18 @@ class AutomationGUI:
         # Callback: cập nhật mật khẩu mới lên GUI khi đổi pass thành công
         self.on_password_changed = self._on_password_changed
     
-        # --- CẤU HÌNH CỘT (INDEX 0 -> 12) ---
+        # --- CẤU HÌNH CỘT (INDEX 0 -> 9) ---
         self.columns = (
-            "uid",          # 0
-            "mail_lk",      # 1
-            "user",         # 2
-            "pass",         # 3
-            "2fa",          # 4
-            "origin_mail",  # 5
-            "pass_mail",    # 6
-            "recovery",     # 7
-            "post",         # 8
-            "followers",    # 9
-            "following",    # 10
-            "cookie",       # 11
-            "note"          # 12
+            "user",          # 0
+            "pass",          # 1
+            "2fa",           # 2
+            "origin_mail",   # 3
+            "pass_mail",     # 4
+            "post",          # 5
+            "followers",     # 6
+            "following",     # 7
+            "cookie",        # 8
+            "note"           # 9
         )
         
         self.setup_ui()
@@ -126,13 +123,13 @@ class AutomationGUI:
 
         # Headers & Widths
         headers = {
-            "uid": "UID", "mail_lk": "MAIL LK", "user": "USER", "pass": "PASS",
-            "2fa": "2FA (RESULT)", "origin_mail": "GMX MAIL", "pass_mail": "GMX PASS",
-            "recovery": "RECOVERY", "post": "POST", "followers": "FLWR", "following": "FLWG",
+            "user": "USER", "pass": "PASS_IG", "2fa": "2FA",
+            "origin_mail": "PHÔI_GỐC", "pass_mail": "PASS_MAIL",
+            "post": "Post", "followers": "Followers", "following": "Following",
             "cookie": "COOKIE", "note": "NOTE"
         }
         col_width = {
-            "uid": 80, "mail_lk": 150, "user": 100, "pass": 80, 
+            "user": 100, "pass": 80, 
             "2fa": 150, "origin_mail": 150, "pass_mail": 80, 
             "post": 50, "followers": 60, "following": 60, "cookie": 100, "note": 100
         }
@@ -199,14 +196,14 @@ class AutomationGUI:
         elapsed = 0  # Initialize elapsed time
         values = list(self.tree.item(item_id)['values'])
         acc = {
-            "uid": str(values[0]), "linked_mail": values[1], "username": values[2],
-            "password": values[3], "gmx_user": values[5], "gmx_pass": values[6]
+            "uid": str(values[0]), "linked_mail": values[3], "username": values[0],
+            "password": values[1], "gmx_user": values[3], "gmx_pass": values[4]
         }
         self.msg_queue.put(("UPDATE_STATUS", (item_id, "", "running")))
         
         # Create unique user data directory for this thread/account
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        user_data_dir = os.path.join(current_dir, "temp_profiles", f"profile_{acc['uid']}_{int(time.time())}")
+        user_data_dir = os.path.join(current_dir, "temp_profiles", f"profile_{acc['username']}_{int(time.time())}")
         if not os.path.exists(user_data_dir):
             os.makedirs(user_data_dir, exist_ok=True)
 
@@ -479,13 +476,13 @@ class AutomationGUI:
         for i in items:
             vals = self.tree.item(i)['values']
             if vals[-1] == "Pending":
-                twofa_val = str(vals[4]).strip()
+                twofa_val = str(vals[2]).strip()
                 if twofa_val == "" or "ERROR_2FA" in twofa_val:
                     pending_items.append(i)
                 else:
                     # Nếu 2FA đã có, đánh dấu success luôn
                     note_time = "Skipped (2FA exists)"
-                    self.update_tree_item(i, {12: f"Success | {note_time}"}, "success")
+                    self.update_tree_item(i, {9: f"Success | {note_time}"}, "success")
                     self.success_count += 1
                     self.write_result_to_output(i, result_type="success")
         if not pending_items:
@@ -518,30 +515,30 @@ class AutomationGUI:
                 
                 if msg_type == "UPDATE_STATUS":
                     item_id, secret_key, tag = data
-                    # Cập nhật Secret Key trực tiếp vào cột 2FA (4) ngay khi lấy được
-                    self.update_tree_item(item_id, {4: secret_key}, tag)
+                    # Cập nhật Secret Key trực tiếp vào cột 2FA (2) ngay khi lấy được
+                    self.update_tree_item(item_id, {2: secret_key}, tag)
                 
                 elif msg_type == "UPDATE_CRAWL":
                     item_id, info = data
-                    # Cập nhật Post(8), Follow(9), Following(10), Cookie(11)
+                    # Cập nhật Post(5), Follow(6), Following(7), Cookie(8)
                     self.update_tree_item(item_id, {
-                        8: info['posts'], 
-                        9: info['followers'], 
-                        10: info['following'],
-                        11: info['cookie']
+                        5: info['posts'], 
+                        6: info['followers'], 
+                        7: info['following'],
+                        8: info['cookie']
                     }, "success")
                 
                 elif msg_type == "STEP3_SUCCESS":
                     item_id = data
-                    # Đánh dấu success ở cột NOTE (12)
-                    self.update_tree_item(item_id, {12: "success"}, "success")
+                    # Đánh dấu success ở cột NOTE (9)
+                    self.update_tree_item(item_id, {9: "success"}, "success")
                 
                 elif msg_type == "SUCCESS":
                     item_id, key, note_time = data
                     self.success_count += 1
                     self.processed_count += 1
-                    # Cập nhật Key 2FA(4), Note(12) với 2FA Success
-                    self.update_tree_item(item_id, {4: key, 12: f"2FA Success | {note_time}"}, "success")
+                    # Cập nhật Key 2FA(2), Note(9) với 2FA Success
+                    self.update_tree_item(item_id, {2: key, 9: f"2FA Success | {note_time}"}, "success")
                     self.update_stats_label()
                     self.write_result_to_output(item_id, result_type="success")
                 
@@ -549,7 +546,7 @@ class AutomationGUI:
                     item_id, err, note_time = data
                     self.fail_count += 1
                     self.processed_count += 1
-                    self.update_tree_item(item_id, {8: err[:60], 12: f"Failed | {note_time}"}, "error") 
+                    self.update_tree_item(item_id, {5: err[:60], 9: f"Failed | {note_time}"}, "error") 
                     self.update_stats_label()
                     self.write_result_to_output(item_id, result_type="fail")
                 
@@ -557,8 +554,8 @@ class AutomationGUI:
                     item_id, err, note_time = data
                     self.fail_count += 1
                     self.processed_count += 1
-                    # Put 2FA error in column 4 (2FA column) instead of post column
-                    self.update_tree_item(item_id, {4: f"ERROR_2FA: {err[:50]}", 12: f"2FA Failed | {note_time}"}, "error") 
+                    # Put 2FA error in column 2 (2FA column) instead of post column
+                    self.update_tree_item(item_id, {2: f"ERROR_2FA: {err[:50]}", 9: f"2FA Failed | {note_time}"}, "error") 
                     self.update_stats_label()
                     self.write_result_to_output(item_id, result_type="2fa")
                 
@@ -583,7 +580,7 @@ class AutomationGUI:
             values = self.tree.item(item_id)['values']
             # Không ghi case có ERROR_2FA vào success.txt
             if result_type == "success":
-                twofa_val = str(values[4]).strip()
+                twofa_val = str(values[2]).strip()
                 if twofa_val.startswith("ERROR_2FA"):
                     return  # Không ghi
             
@@ -735,7 +732,7 @@ class AutomationGUI:
                     # Chỉ export success nếu có 2FA key hợp lệ (không phải ERROR_2FA) và đã hoàn thành step4
                     if "success" in note and twofa_val and not twofa_val.startswith("ERROR_2FA"):
                         should_export = True
-                elif mode == "2fa_errors" and "error_2fa" in str(vals[4]).lower(): should_export = True
+                elif mode == "2fa_errors" and "error_2fa" in str(vals[2]).lower(): should_export = True
                 elif mode == "failed" and ("fail" in note or "error" in note): should_export = True
                 elif mode == "no_success" and "success" not in note: should_export = True
                 
