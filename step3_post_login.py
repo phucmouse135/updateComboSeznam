@@ -141,19 +141,40 @@ class InstagramPostLoginStep:
                         'cookie': ['allow all cookies', 'cho phép tất cả'],
                         'popup': ['not now', 'lúc khác', 'cancel', 'ok', 'hủy'], 
                         'age_check': ['18 or older', '18 tuổi trở lên', 'trên 18 tuổi'],
-                        'account_center_check': ['choose an option', 'accounts center', 'use data across accounts'] 
+                        'account_center_check': ['choose an option', 'accounts center', 'use data across accounts', 'keep using your info across these accounts?'] 
                     };
                     const bodyText = (document.body && document.body.innerText.toLowerCase()) || '';
 
                     // --- ƯU TIÊN: POPUP "ACCOUNTS CENTER" ---
                     if (keywords.account_center_check.some(k => bodyText.includes(k))) {
-                        let buttons = document.querySelectorAll('button, div[role="button"], span');
-                        for (let btn of buttons) {
-                            let t = btn.innerText.toLowerCase().trim();
-                            if (t === 'next' || t === 'tiếp' || t === 'continue') {
-                                btn.click();
-                                if (btn.tagName === 'SPAN' && btn.parentElement) btn.parentElement.click();
-                                return 'ACCOUNTS_CENTER_NEXT';
+                        if (bodyText.includes('keep using your info across these accounts?')) {
+                            // Select use info across accounts radio button
+                            let radios = document.querySelectorAll('input[type="radio"]');
+                            for (let radio of radios) {
+                                let label = document.querySelector(`label[for="${radio.id}"]`) || radio.closest('div').querySelector('span, div');
+                                if (label && (label.innerText.toLowerCase().includes('keep using') || label.innerText.toLowerCase().includes('use info across accounts'))) {
+                                    radio.click();
+                                    // Then click next after a short delay
+                                    setTimeout(() => {
+                                        let buttons = document.querySelectorAll('button, div[role="button"]');
+                                        for (let btn of buttons) {
+                                            if (btn.innerText.toLowerCase().trim() === 'next' || btn.innerText.toLowerCase().trim() === 'tiếp') {
+                                                btn.click();
+                                            }
+                                        }
+                                    }, 500);
+                                    return 'KEEP_INFO_USE_SELECTED';
+                                }
+                            }
+                        } else {
+                            let buttons = document.querySelectorAll('button, div[role="button"], span');
+                            for (let btn of buttons) {
+                                let t = btn.innerText.toLowerCase().trim();
+                                if (t === 'next' || t === 'tiếp' || t === 'continue') {
+                                    btn.click();
+                                    if (btn.tagName === 'SPAN' && btn.parentElement) btn.parentElement.click();
+                                    return 'ACCOUNTS_CENTER_NEXT';
+                                }
                             }
                         }
                     }
@@ -279,6 +300,12 @@ class InstagramPostLoginStep:
                     elif action_result == 'AGE_CHECK_CLICKED': 
                         print("   [Step 3] Handled Age Verification (18+). Waiting...")
                         time.sleep(3)
+                    elif action_result == 'KEEP_INFO_MANAGE_SELECTED':
+                        print("   [Step 3] Selected manage accounts and clicked next. Waiting...")
+                        time.sleep(2)
+                    elif action_result == 'KEEP_INFO_USE_SELECTED':
+                        print("   [Step 3] Selected use info across accounts and clicked next. Waiting...")
+                        time.sleep(2)
                     else:
                         time.sleep(1.5)
                     continue

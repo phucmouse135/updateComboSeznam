@@ -799,9 +799,9 @@ class InstagramExceptionStep:
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
                 
         
-        if status == "RETRY_UNUSUAL_LOGIN":
-            print("   [Step 2] Detected 'Sorry, there was a problem. Please try again.' Retrying Unusual Login...")
-            return self.handle_status("CONTINUE_UNUSUAL_LOGIN", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+        # if status == "RETRY_UNUSUAL_LOGIN":
+        #     print("   [Step 2] Detected 'Sorry, there was a problem. Please try again.' Retrying Unusual Login...")
+        #     return self.handle_status("CONTINUE_UNUSUAL_LOGIN", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
         # CHECKPOINT_PHONE
         if status == "CHECKPOINT_PHONE":
@@ -860,12 +860,39 @@ class InstagramExceptionStep:
         if status == "RETRY_UNUSUAL_LOGIN":
             # call step 1 to login again with new data 
             print("   [Step 2] Handling Retry Unusual Login...")
-            isLogin = self.step1_login.perform_login(ig_username, ig_password)
-            wait_dom_ready(self.driver, timeout=20)
-            if isLogin:
-                return self.handle_status("LOGGED_IN_SUCCESS", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+            # Nhấn button Continue 
+            self._robust_click_button([
+                ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
+                ("css", "button[type='submit']"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim().toLowerCase().includes('continue') || buttons[i].textContent.trim().toLowerCase().includes('tiếp tục')) {
+                            return buttons[i];
+                        }
+                    }
+                    return null;
+                """)
+            ])
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            time.sleep(2)
+            
+            # Nhap password lai
+            password_input = wait_element(self.driver, By.NAME, "password", timeout=20)
+            if password_input: 
+                password_input.clear()
+                password_input.send_keys(ig_password)
+                time.sleep(1)
+                password_input.send_keys(Keys.ENTER)
+                WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             else:
-                return  self.handle_status("UNUSUAL_LOGIN", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+                print("   [Step 2] Could not find password input to retry unusual login.")
+            wait_dom_ready(self.driver, timeout=10)
+            time.sleep(2)
+            new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             
         
         # if status == "REQUIRE_PASSWORD_CHANGE":
@@ -1955,7 +1982,7 @@ class InstagramExceptionStep:
                 if "add phone number to get back into instagram" in body_text or "send confirmation" in body_text or "log into another account" in body_text or "we will send a confirmation code via sms to your phone." in body_text: 
                     return "SUSPENDED_PHONE"
                 # this was me / let us know if it was you
-                if "this was me" in body_text or "let us know if it was you" in body_text or "to secure your account" in body_text:
+                if "this was me" in body_text or "let us know if it was you" in body_text:
                     return "CONFIRM_TRUSTED_DEVICE"
                 
                 if "check your text messages" in body_text or "kiểm tra tin nhắn văn bản của bạn" in body_text:
@@ -2038,8 +2065,10 @@ class InstagramExceptionStep:
                     return "LOGGED_IN_SUCCESS"
                 
                 # use another profile va log into instagram => dang nhap lai voi data moi 
-                if 'log into instagram' in body_text or 'use another profile' in body_text or "create new account" in body_text:
-                    return "RETRY_UNUSUAL_LOGIN"  
+                if 'log into instagram' in body_text or 'use another profile' in body_text or "create new account" in body_text :
+                    if "continue" in body_text or "tiếp tục" in body_text:
+                        return "RETRY_UNUSUAL_LOGIN"
+                    return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION"  
                 
                 if 'save your login info' in body_text or 'we can save your login info' in body_text or 'lưu thông tin đăng nhập' in body_text:
                     return "LOGGED_IN_SUCCESS"
