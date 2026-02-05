@@ -90,6 +90,11 @@ class InstagramPostLoginStep:
                     time.sleep(1)
                     continue
                 
+                if self._handle_confirm_your_account():
+                    print("   [Step 3] Handled Confirm Your Account individually")
+                    time.sleep(1)
+                    continue
+                
                 try:
                     current_url = self.driver.current_url.lower()
                     if "ad_free_subscription" in current_url:
@@ -175,6 +180,33 @@ class InstagramPostLoginStep:
                                     if (btn.tagName === 'SPAN' && btn.parentElement) btn.parentElement.click();
                                     return 'ACCOUNTS_CENTER_NEXT';
                                 }
+                            }
+                        }
+                    }
+                    
+                    // --- POST VIOLATES COMMUNITY STANDARDS ---
+                    if (bodyText.includes('your post goes against our community standards') || 
+                        bodyText.includes('bài đăng của bạn vi phạm các tiêu chuẩn cộng đồng của chúng tôi') || 
+                        bodyText.includes('how we make decisions')) {
+                        let buttons = document.querySelectorAll('button, div[role="button"]');
+                        for (let btn of buttons) {
+                            if (btn.innerText.toLowerCase().trim() === 'ok') {
+                                btn.click();
+                                return 'POST_VIOLATES_OK_CLICKED';
+                            }
+                        }
+                    }
+                    
+                    // --- UNUSUAL ACTIVITY DETECTED ---
+                    if (bodyText.includes('we suspect automated behavior on your account') || 
+                        bodyText.includes('prevent your account from being temporarily') || 
+                        bodyText.includes('verify you are a real person') || 
+                        bodyText.includes('suspicious activity')) {
+                        let buttons = document.querySelectorAll('button, div[role="button"]');
+                        for (let btn of buttons) {
+                            if (btn.innerText.toLowerCase().trim() === 'dismiss') {
+                                btn.click();
+                                return 'UNUSUAL_ACTIVITY_DETECTED';
                             }
                         }
                     }
@@ -305,6 +337,9 @@ class InstagramPostLoginStep:
                         time.sleep(2)
                     elif action_result == 'KEEP_INFO_USE_SELECTED':
                         print("   [Step 3] Selected use info across accounts and clicked next. Waiting...")
+                        time.sleep(2)
+                    elif action_result == 'UNUSUAL_ACTIVITY_DETECTED':
+                        print("   [Step 3] Dismissed unusual activity popup. Waiting...")
                         time.sleep(2)
                     else:
                         time.sleep(1.5)
@@ -493,6 +528,53 @@ class InstagramPostLoginStep:
                 if 'allow all cookies' in b.text.lower() or 'cho phép tất cả' in b.text.lower():
                     b.click()
                     return True
+            return False
+        except:
+            return False
+
+    def _handle_confirm_your_account(self):
+        """Handle 'Confirm Your Account' popup individually."""
+        try:
+            time.sleep(0.5)
+            body_text = self.driver.find_element(By.TAG_NAME, 'body').text.lower()
+            if 'confirm your account' in body_text or 'xác nhận tài khoản của bạn' in body_text:
+                # 1. Click "Get started" / "Bắt đầu"
+                buttons = self.driver.find_elements(By.CSS_SELECTOR, 'button, div[role="button"]')
+                get_started_clicked = False
+                for b in buttons:
+                    if 'get started' in b.text.lower() or 'bắt đầu' in b.text.lower():
+                        b.click()
+                        get_started_clicked = True
+                        break
+                
+                if not get_started_clicked:
+                    # Try alternative selectors
+                    try:
+                        self.driver.find_element(By.CSS_SELECTOR, "button._acan._acap._acas").click()
+                        get_started_clicked = True
+                    except:
+                        pass
+                
+                wait_dom_ready(self.driver, timeout=10)
+                time.sleep(2)
+                
+                # 2. Select radio button "Use data across accounts" / "Sử dụng dữ liệu trên các tài khoản"
+                labels = self.driver.find_elements(By.CSS_SELECTOR, 'label')
+                for label in labels:
+                    if 'use data across accounts' in label.text.lower() or 'sử dụng dữ liệu trên các tài khoản' in label.text.lower():
+                        label.click()
+                        break
+                
+                time.sleep(1)
+                
+                # 3. Click "Next" / "Tiếp theo"
+                buttons = self.driver.find_elements(By.CSS_SELECTOR, 'button, div[role="button"]')
+                for b in buttons:
+                    if 'next' in b.text.lower() or 'tiếp theo' in b.text.lower():
+                        b.click()
+                        return True
+                
+                return True  # Even if next not clicked, we handled the popup
             return False
         except:
             return False

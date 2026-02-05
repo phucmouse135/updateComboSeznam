@@ -1952,7 +1952,7 @@ class InstagramExceptionStep:
                 if "you need to request help logging in" in body_text or "to secure your account, you need to request help logging in" in body_text:
                     return "GET_HELP_LOG_IN"
                 
-                if "use another account" in body_text and "continue" in body_text:
+                if "use another profile" in body_text and "continue" in body_text:
                     return "RETRY_LOGIN"
                 
                 # We suspect automated behavior on your account
