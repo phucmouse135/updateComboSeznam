@@ -157,13 +157,18 @@ class InstagramPostLoginStep:
                             let radios = document.querySelectorAll('input[type="radio"]');
                             for (let radio of radios) {
                                 let label = document.querySelector(`label[for="${radio.id}"]`) || radio.closest('div').querySelector('span, div');
-                                if (label && (label.innerText.toLowerCase().includes('keep using') || label.innerText.toLowerCase().includes('use info across accounts'))) {
+                                if (label && label.innerText.toLowerCase().includes('use info across accounts')) {
                                     radio.click();
+                                    if (label) label.click();
+                                    let container = radio.closest('div[role="button"]');
+                                    if (container) container.click();
+                                    let visualCircle = radio.previousElementSibling;
+                                    if (visualCircle) visualCircle.click();
                                     // Then click next after a short delay
                                     setTimeout(() => {
                                         let buttons = document.querySelectorAll('button, div[role="button"]');
                                         for (let btn of buttons) {
-                                            if (btn.innerText.toLowerCase().trim() === 'next' || btn.innerText.toLowerCase().trim() === 'tiếp') {
+                                            if (btn.offsetParent !== null && !btn.disabled && (btn.innerText.toLowerCase().trim() === 'next' || btn.innerText.toLowerCase().trim() === 'tiếp')) {
                                                 btn.click();
                                             }
                                         }
@@ -175,7 +180,7 @@ class InstagramPostLoginStep:
                             let buttons = document.querySelectorAll('button, div[role="button"], span');
                             for (let btn of buttons) {
                                 let t = btn.innerText.toLowerCase().trim();
-                                if (t === 'next' || t === 'tiếp' || t === 'continue') {
+                                if (btn.offsetParent !== null && !btn.disabled && (t === 'next' || t === 'tiếp' || t === 'continue')) {
                                     btn.click();
                                     if (btn.tagName === 'SPAN' && btn.parentElement) btn.parentElement.click();
                                     return 'ACCOUNTS_CENTER_NEXT';

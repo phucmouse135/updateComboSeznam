@@ -528,9 +528,21 @@ class InstagramExceptionStep:
             print("   [Step 2] Handling Data Processing For Ads...")
             # click not now 
             self._robust_click_button([
-                ("xpath", "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'not now')]"),
-                ("xpath", "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'skip')]"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button, [role=\"button\"], div[role=\"button\"]');
+                    for (var i=0; i<buttons.length; i++) {
+                        var text = buttons[i].textContent.trim().toLowerCase();
+                        if (text.includes('no') || text.includes('decline') || text.includes('don\\'t allow') ||
+                            text.includes('not now') || text.includes('skip') || text.includes('dismiss') ||
+                            text.includes('không') || text.includes('từ chối') || text.includes('bỏ qua')) {
+                            return buttons[i];
+                        }
+                    }
+                    return null;
+                """),
                 ("css", "button[data-testid*='not-now'], button[aria-label*='not now']"),
+                ("css", "div[role='button'][tabindex='0']"),
+                ("css", "div[role='button']"),
                 ("css", "button")  # Last resort - any button
             ])
             time.sleep(2)
@@ -895,9 +907,6 @@ class InstagramExceptionStep:
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             
         
-        # if status == "REQUIRE_PASSWORD_CHANGE":
-        #     print("   [Step 2] Password too short, retrying change password...")
-        #     return self.handle_status("REQUIRE_PASSWORD_CHANGE", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         if status == "CONTINUE_UNUSUAL_LOGIN":
             # Timeout protection for unusual login (max 60s)
             start_time = time.time()
@@ -1163,15 +1172,47 @@ class InstagramExceptionStep:
             else:
                 raise Exception("STOP_FLOW_REQUIRE_PASSWORD_CHANGE: No password provided")
 
+        if status == "PASSWORD_CHANGE_CONFIRMATION":
+            print("   [Step 2] Handling Password Change Confirmation...")
+            if ig_password:
+                new_pass = ig_password + "@"
+                # Find input and send keys
+                input_el = wait_element(self.driver, By.CSS_SELECTOR, "input[type='password']", timeout=10)
+                if input_el:
+                    input_el.clear()
+                    input_el.send_keys(new_pass)
+                    time.sleep(1)
+                # Click confirm
+                self._robust_click_button([
+                    ("xpath", "//button[contains(text(), 'Confirm')]"),
+                    ("xpath", "//button[contains(text(), 'Xác nhận')]"),
+                    ("css", "button[type='submit']"),
+                    ("js", """
+                        var buttons = document.querySelectorAll('button');
+                        for (var b of buttons) {
+                            if (b.textContent.toLowerCase().includes('confirm') || b.textContent.toLowerCase().includes('xác nhận')) {
+                                return b;
+                            }
+                        }
+                        return null;
+                    """)
+                ])
+                wait_dom_ready(self.driver, timeout=10)
+                time.sleep(2)
+                new_status = self._check_verification_result()
+                return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+            else:
+                raise Exception("STOP_FLOW_PASSWORD_CHANGE_CONFIRMATION: No password provided")
+
         if status == "CHANGE_PASSWORD":
             # handle one input for new password
             print("   [Step 2] Handling Change Password...")
             if ig_password :
                 new_pass = ig_password + "@"
                 try:
-                    self._handle_require_password_change(new_pass)  # Use the same method as REQUIRE_PASSWORD_CHANGE
+                    self._handle_change_password(new_pass)  # Use the same method as REQUIRE_PASSWORD_CHANGE
                 except Exception as e:
-                    print(f"   [Step 2] Error in _handle_require_password_change: {e}")
+                    print(f"   [Step 2] Error in _handle_change_password: {e}")
                     # If error, try to recover by refreshing
                     self.driver.get("https://www.instagram.com/")
                     wait_dom_ready(self.driver, timeout=20)
@@ -1187,19 +1228,13 @@ class InstagramExceptionStep:
                 wait_dom_ready(self.driver, timeout=20)
                 time.sleep(4)
                 
-                # Check if we're actually logged in after password change
-                current_status = self._check_verification_result()
-                if current_status in ["LOGGED_IN_SUCCESS", "COOKIE_CONSENT", "TERMS_AGREEMENT"]:
-                    print(f"   [Step 2] Password changed and login successful. Status: {current_status}")
-                    return current_status
-                else:
-                    # If not logged in, restart the login process
-                    print(f"   [Step 2] Password changed but not logged in. Status: {current_status}. Returning RESTART_LOGIN to restart process with new password.")
-                    return "RESTART_LOGIN"
+                new_status = self._check_verification_result()
+                if new_status == status:
+                    new_status = self._check_status_change_with_timeout(status, 15)
+                return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             else:
                 raise Exception("STOP_FLOW_CHANGE_PASSWORD: No password provided")
             
-    
 
         # XỬ LÝ BIRTHDAY
         if status == "BIRTHDAY_SCREEN":
@@ -1844,77 +1879,101 @@ class InstagramExceptionStep:
                     raise Exception("STOP_FLOW_CHECKPOINT_MAIL_EXHAUSTED: Max mail attempts reached")
             return check_result
 
+
+
     def _handle_change_password(self, old_password):
-        # Timeout protection for change password (max 60s)
+        """Xử lý đổi mật khẩu: Chỉ điền 1 input duy nhất và nhấn Confirm."""
         start_time = time.time()
-        TIMEOUT = 60
-        print(f"   [Step 2] Handling Password Change (Re-using old password)...")
+        TIMEOUT = 120
+        print(f"   [Step 2] Handling Password Change (Single Input Mode)...")
         
         try:
-            # 1. Chờ ít nhất một ô input xuất hiện (Retry mechanism tích hợp trong wait_element)
-            first_input = wait_element(self.driver, By.CSS_SELECTOR, 
-                "input[name='password'], input[name='new_password'], input[type='password']", timeout=20)
+            # 1. Tìm ô input (Sử dụng danh sách ưu tiên để tìm đúng ô New Password)
+            # Chúng ta tìm tất cả nhưng sẽ chỉ thao tác với thằng đầu tiên hiển thị
+            password_input = None
+            selectors = [
+                "input[name='password']", 
+                "input[name='new_password']", 
+                "input[type='password']",
+                "input[aria-label*='Password']"
+            ]
             
-            if not first_input:
-                raise Exception("No password input fields found")
-            
-            visible_inputs = []
-            visible_inputs.append(first_input)
-
-            # 3. Điền pass vào các ô tìm thấy (Logic: Điền tối đa 2 ô đầu tiên tìm thấy - thường là New & Confirm)
-            filled_count = 0
-            for inp in visible_inputs:
-                if filled_count >= 2: break # Safety: Chỉ điền tối đa 2 ô để tránh điền nhầm vào ô 'Old Password' nếu form quá dị
-                if not inp:
-                    print(f"   [Step 2] Warning: Input element is None, skipping")
-                    continue
+            # Chờ đợi thông minh cho đến khi thấy ít nhất 1 ô input
+            for selector in selectors:
                 try:
-                    inp.click()
-                    inp.clear()
-                    inp.send_keys(old_password)
-                    filled_count += 1
-                except Exception as e:
-                    print(f"   [Step 2] Warning: Failed to fill an input field: {str(e)}")
-            
-            time.sleep(1) # Ổn định UI trước khi submit
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for el in elements:
+                        if el.is_displayed() and el.is_enabled():
+                            password_input = el
+                            break
+                    if password_input: break
+                except: continue
 
-            # 4. Xử lý Submit (Giữ nguyên logic retry tìm nút mạnh mẽ của bạn)
+            if not password_input:
+                raise Exception("STOP_FLOW: No visible password input field found")
+
+            # 2. Thao tác điền mật khẩu vào DUY NHẤT 1 ô
+            try:
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", password_input)
+                time.sleep(0.5)
+                password_input.click()
+                password_input.clear()
+                password_input.send_keys(old_password)
+                print(f"   [Step 2] Filled password into the primary input field.")
+            except Exception as e:
+                raise Exception(f"STOP_FLOW: Failed to fill password input: {str(e)}")
+
+            time.sleep(0.8) # Ổn định UI ngắn
+
+            # 3. Xử lý Submit (Confirm)
             submit_clicked = False
-            # Ưu tiên nút submit chuẩn
-            if wait_and_click(self.driver, By.CSS_SELECTOR, "button[type='submit']", timeout=20): 
-                submit_clicked = True
             
-            # Fallback: Quét tất cả button nếu nút submit chuẩn không hoạt động
+            # Ưu tiên 1: Click bằng Selector chuẩn
+            submit_selectors = [
+                "button[type='submit']",
+                "div[role='button'][type='submit']",
+                "button:not([disabled])" # Nút bất kỳ không bị disable
+            ]
+            
+            for sel in submit_selectors:
+                if wait_and_click(self.driver, By.CSS_SELECTOR, sel, timeout=5):
+                    submit_clicked = True
+                    break
+            
+            # Ưu tiên 2: Fallback quét text nếu Selector chuẩn thất bại
             if not submit_clicked:
-                btns = self.driver.execute_script("return Array.from(document.querySelectorAll('button'));")
+                btns = self.driver.find_elements(By.TAG_NAME, 'button')
                 for b in btns:
                     try:
-                        if b.is_displayed() and any(k in b.text.lower() for k in ["change", "submit", "continue", "save", "update", "confirm", "xác nhận"]):
-                            b.click()
+                        text = b.text.lower()
+                        if b.is_displayed() and any(k in text for k in ["change", "submit", "continue", "save", "update", "confirm", "xác nhận", "tiếp tục"]):
+                            self.driver.execute_script("arguments[0].click();", b)
                             submit_clicked = True
                             break
-                    except: continue # Bỏ qua nếu button bị stale trong quá trình loop
-                    
-                    if time.time() - start_time > TIMEOUT:
-                        raise Exception("TIMEOUT_CHANGE_PASSWORD: Button scanning loop")
+                    except: continue
 
+            # Ưu tiên 3: Nhấn Enter nếu không tìm thấy nút
             if not submit_clicked:
-                 print("   [Step 2] Warning: No submit button clicked. Attempting Enter key on last input...")
-                 visible_inputs[-1].send_keys(Keys.ENTER) # Backup cuối cùng
+                print("   [Step 2] No button found. Pressing Enter...")
+                password_input.send_keys(Keys.ENTER)
+                submit_clicked = True
 
-            print("   [Step 2] Submitted password change form.")
-            
-            # 5. Wait for finish (increased from 2s to 5s to allow page transition)
+            # 4. Đợi hoàn tất chuyển trang
+            print("   [Step 2] Submitted. Waiting for page transition...")
             time.sleep(5) 
-            WebDriverWait(self.driver, 30).until(lambda d: d.execute_script("return document.readyState") == "complete")
+            WebDriverWait(self.driver, 30).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
             
             if time.time() - start_time > TIMEOUT:
-                raise Exception("TIMEOUT_CHANGE_PASSWORD: End process exceeded time")
+                raise Exception("TIMEOUT_CHANGE_PASSWORD: Total time exceeded")
 
         except Exception as e:
-            print(f"   [Step 2] Error handling password change: {e}")
-            # Có thể thêm logic retry lại hàm này 1 lần nữa nếu cần thiết ở tầng gọi hàm
+            print(f"   [Step 2] Error in password change flow: {e}")
+            if "STOP_FLOW" in str(e):
+                raise e # Ném lỗi nghiêm trọng lên tầng trên xử lý
 
+        return True
     def _check_verification_result(self):
         # Timeout protection for verification result (max 60s)
         # Optimized with JS checks to avoid hangs and speed up detection
@@ -2021,7 +2080,7 @@ class InstagramExceptionStep:
                     return "RECOVERY_CHALLENGE"
                 
                 # Choose if we process your data for ads
-                if "choose if we process your data for ads" in body_text or "chọn nếu chúng tôi xử lý dữ liệu của bạn cho quảng cáo" in body_text:
+                if "choose if we process your data for ads" in body_text or "choose whether we process your data for ads" in body_text or "choose if we can process your data for ads" in body_text or "chọn nếu chúng tôi xử lý dữ liệu của bạn cho quảng cáo" in body_text:
                     return "DATA_PROCESSING_FOR_ADS"
                 
                 if 'change password' in body_text or 'new password' in body_text or 'create a strong password' in body_text or 'change your password to secure your account' in body_text:
@@ -2036,6 +2095,9 @@ class InstagramExceptionStep:
                 
                 if "password" in body_text and "mobile number,username or email" in body_text:
                     return "RETRY_LOGIN_2"
+                
+                if "you will be logged out anywhere else when your new password is set" in body_text:
+                    return "PASSWORD_CHANGE_CONFIRMATION"
                 
                 if 'select your birthday' in body_text or 'add your birthday' in body_text:
                     return "BIRTHDAY_SCREEN"

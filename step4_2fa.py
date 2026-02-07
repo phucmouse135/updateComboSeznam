@@ -51,6 +51,20 @@ class Instagram2FAStep:
             }
             return null;
         """)
+        
+    def _validate_key(self, secret_key):
+        """Hàm kiểm tra xem Secret Key có tạo được OTP hợp lệ không."""
+        try:
+            key_for_otp = secret_key.replace(" ", "").strip()
+            # Thử khởi tạo TOTP, nếu key sai định dạng Base32 pyotp sẽ raise Error
+            totp = pyotp.TOTP(key_for_otp)
+            otp_code = totp.now()
+            # Kiểm tra OTP phải là 6 chữ số
+            if otp_code and len(otp_code) == 6 and otp_code.isdigit():
+                return True
+            return False
+        except Exception:
+            return False
 
     def setup_2fa(self, gmx_user, gmx_pass, target_username, linked_mail=None):
         """
@@ -68,10 +82,31 @@ class Instagram2FAStep:
             # -------------------------------------------------
             # STEP 1: SELECT ACCOUNT
             # -------------------------------------------------
-            print(f"   [Step 4] Step 1: Selecting Account for {target_username}...")
-            acc_selected = self._select_account_center_profile(target_username)
-            if not acc_selected:
-                raise Exception("STOP_FLOW_2FA: Account selection failed")
+            print("   [2FA] Step 1: Selecting Account...")
+            acc_selected = False
+            for attempt in range(3):
+                try:
+                    wait_element(self.driver, By.XPATH, "//div[@role='button'] | //a[@role='link']", timeout=5)
+                    clicked = self.driver.execute_script("""
+                        var els = document.querySelectorAll('div[role="button"], a[role="link"]');
+                        for (var i=0; i<els.length; i++) {
+                            if (els[i].innerText.toLowerCase().includes('instagram')) { els[i].click(); return true; }
+                        }
+                        return false;
+                    """)
+                    if clicked: 
+                        acc_selected = True
+                        wait_dom_ready(self.driver, timeout=5)
+                        break
+                    else:
+                        if "lite" in self.driver.current_url: 
+                            self.driver.get(self.target_url)
+                            wait_dom_ready(self.driver, timeout=5)
+                        else: time.sleep(1)
+                except: time.sleep(1)
+            
+            if not acc_selected: print("   [2FA] Warning: Select Account failed (May already be inside).")
+
             
             wait_dom_ready(self.driver, timeout=5)
             time.sleep(3)  # Chờ thêm 3s để trang ổn định
@@ -338,43 +373,65 @@ class Instagram2FAStep:
     def _select_account_center_profile(self, target_username):
         acc_selected = False
         target_lower = target_username.lower()
-        for attempt in range(3):
+        for attempt in range(5):  # Tăng số lần thử lên 5
             try:
                 wait_element(self.driver, By.XPATH, "//div[@role='button'] | //a[@role='link']", timeout=5)
-                elements = self.driver.find_elements(By.XPATH, "//div[@role='button'] | //a[@role='link']")
-                print(f"   [Step 4] Found {len(elements)} account elements.")
-                for el in elements:
-                    txt = el.text.lower()
-                    print(f"   [Step 4] Element text: '{txt}'")
-                    if target_lower in txt and 'instagram' in txt:
-                        print(f"   [Step 4] Clicking exact match for {target_username}")
-                        el.click()
+                
+                # Use JS to find and click the account
+                clicked = self.driver.execute_script(f"""
+                    var target = '{target_lower}';
+                    var elements = document.querySelectorAll('div[role="button"], a[role="link"]');
+                    
+                    // First: exact match with instagram
+                    for (var el of elements) {{
+                        var txt = el.textContent.toLowerCase();
+                        if (txt.includes(target) && txt.includes('instagram')) {{
+                            el.scrollIntoView({{behavior: 'instant', block: 'center'}});
+                            el.click();
+                            return true;
+                        }}
+                    }}
+                    
+                    // Second: any with username
+                    for (var el of elements) {{
+                        var txt = el.textContent.toLowerCase();
+                        if (txt.includes(target)) {{
+                            el.scrollIntoView({{behavior: 'instant', block: 'center'}});
+                            el.click();
+                            return true;
+                        }}
+                    }}
+                    
+                    // Third: any instagram
+                    for (var el of elements) {{
+                        var txt = el.textContent.toLowerCase();
+                        if (txt.includes('instagram')) {{
+                            el.scrollIntoView({{behavior: 'instant', block: 'center'}});
+                            el.click();
+                            return true;
+                        }}
+                    }}
+                    
+                    return false;
+                """)
+                
+                if clicked:
+                    wait_dom_ready(self.driver, timeout=5)
+                    # Verify selection
+                    try:
+                        body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+                        if target_lower in body_text or target_username in body_text:
+                            print(f"   [Step 4] Verified: Account {target_username} selected")
+                            acc_selected = True
+                        else:
+                            print(f"   [Step 4] Verification failed: Username not found in page, retrying...")
+                            continue  # Try again
+                    except:
+                        print(f"   [Step 4] Verification error, assuming selected")
                         acc_selected = True
-                        wait_dom_ready(self.driver, timeout=5)
-                        break
-                if not acc_selected:
-                    # Fallback: any with username
-                    for el in elements:
-                        txt = el.text.lower()
-                        if target_lower in txt:
-                            print(f"   [Step 4] Clicking fallback match for {target_username}")
-                            el.click()
-                            acc_selected = True
-                            wait_dom_ready(self.driver, timeout=5)
-                            break
-                if not acc_selected:
-                    # Fallback: any instagram
-                    for el in elements:
-                        txt = el.text.lower()
-                        if 'instagram' in txt:
-                            print(f"   [Step 4] Clicking any Instagram account")
-                            el.click()
-                            acc_selected = True
-                            wait_dom_ready(self.driver, timeout=5)
-                            break
-                if acc_selected:
                     break
                 else:
+                    print(f"   [Step 4] No suitable account element found in attempt {attempt+1}")
                     time.sleep(1)
             except Exception as e:
                 print(f"   [Step 4] Attempt {attempt+1} failed: {e}")
