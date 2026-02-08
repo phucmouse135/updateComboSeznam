@@ -839,6 +839,52 @@ class Instagram2FAStep:
         val = str(text_value).strip()
         
         def fill_action():
+            # Check for multiple code inputs (6 separate fields)
+            multiple_inputs = self.driver.execute_script("""
+                var inputs = document.querySelectorAll('input[type="text"], input[maxlength="1"]');
+                var codeInputs = [];
+                for (var i = 0; i < inputs.length; i++) {
+                    var inp = inputs[i];
+                    if (inp.offsetParent !== null && (inp.name && inp.name.toLowerCase().includes('code') || inp.placeholder && inp.placeholder.toLowerCase().includes('code') || inp.className && inp.className.toLowerCase().includes('code'))) {
+                        codeInputs.push(inp);
+                    }
+                }
+                if (codeInputs.length < 2) {
+                    // Fallback: all text inputs if no specific code inputs found
+                    codeInputs = Array.from(document.querySelectorAll('input[type="text"]')).filter(function(inp) {
+                        return inp.offsetParent !== null;
+                    });
+                }
+                return codeInputs.slice(0, 6);  // Limit to 6
+            """)
+            
+            if len(multiple_inputs) > 1 and len(multiple_inputs) <= 6:
+                if len(val) != len(multiple_inputs):
+                    print(f"   [Step 4] Code length {len(val)} doesn't match input fields {len(multiple_inputs)}")
+                    return False
+                for i, inp in enumerate(multiple_inputs):
+                    try:
+                        ActionChains(self.driver).move_to_element(inp).click().perform()
+                        inp.clear()
+                        inp.send_keys(val[i])
+                        time.sleep(0.1)
+                    except Exception as e:
+                        print(f"   [Step 4] Failed to fill input {i}: {e}")
+                        return False
+                time.sleep(0.3)
+                # Check if all inputs have the correct values
+                all_correct = True
+                for i, inp in enumerate(multiple_inputs):
+                    try:
+                        if inp.get_attribute("value") != val[i]:
+                            all_correct = False
+                            break
+                    except:
+                        all_correct = False
+                        break
+                return all_correct
+            
+            # Fallback to single input
             input_el = self._find_code_input()
             if not input_el:
                 return False
