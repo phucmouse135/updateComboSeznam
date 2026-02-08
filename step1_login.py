@@ -44,7 +44,7 @@ class InstagramLoginStep:
             
             self.driver.refresh()
             # TỐI ƯU: Chờ DOM load xong thay vì ngủ cứng 3s
-            wait_dom_ready(self.driver, timeout=5)
+            wait_dom_ready(self.driver, timeout=15)
             return True
         except Exception as e:
             print(f"   [Step 1] Error loading cookies: {e}")
@@ -77,12 +77,15 @@ class InstagramLoginStep:
         else:
             print(f"[{username}]   [Step 1] 'Allow all cookies' button not found or already dismissed")
 
+        # Ensure page is fully loaded before input
+        wait_dom_ready(self.driver, timeout=10)
+
         # --- GIAI ĐOẠN 2: NHẬP USER (TỐI ƯU TỐC ĐỘ) ---
         print(f"[{username}]   [Step 1] Entering Username...")
-        user_css_group = "input[name='email'], input[name='username'], input[id^='_r_'][type='text']"
+        user_css_group = "input[name='email'], input[name='username'], input[id^='_r_'][type='text'], input[placeholder*='username'], input[placeholder*='email'], input[placeholder*='phone'], input[aria-label*='username'], input[aria-label*='email']"
         user_start = time.time()
-        # Max 30s for user input
-        while time.time() - user_start < 30:
+        # Max 60s for user input
+        while time.time() - user_start < 60:
             user_input = wait_element(self.driver, By.CSS_SELECTOR, user_css_group, timeout=3)
             if user_input:
                 try:
@@ -98,10 +101,10 @@ class InstagramLoginStep:
 
         # --- GIAI ĐOẠN 3: NHẬP PASSWORD (TỐI ƯU TỐC ĐỘ) ---
         print(f"[{username}]   [Step 1] Entering Password...")
-        pass_css_group = "input[name='pass'], input[name='password'], input[id^='_r_'][type='password']"
+        pass_css_group = "input[name='pass'], input[name='password'], input[id^='_r_'][type='password'], input[placeholder*='password'], input[aria-label*='password']"
         pass_start = time.time()
-        # Max 30s for password input
-        while time.time() - pass_start < 30:
+        # Max 60s for password input
+        while time.time() - pass_start < 60:
             pass_input = wait_element(self.driver, By.CSS_SELECTOR, pass_css_group, timeout=3)
             if pass_input:
                 try:
@@ -117,13 +120,13 @@ class InstagramLoginStep:
         # --- GIAI ĐOẠN 4: CLICK LOGIN ---
         print(f"[{username}]   [Step 1] Clicking Login...")
         login_start = time.time()
-        # Max 15s for login button
-        while time.time() - login_start < 15:
+        # Max 60s for login button
+        while time.time() - login_start < 60:
             try:
                 pass_input.send_keys(Keys.ENTER)
                 break
             except:
-                login_btn_xpath = "//button[@type='submit'] | //div[contains(text(), 'Log in')]"
+                login_btn_xpath = "//button[@type='submit'] | //div[contains(text(), 'Log in')] | //button[contains(text(), 'Log in')] | //button[contains(text(), 'Login')] | //div[@role='button' and contains(text(), 'Log in')]"
                 if wait_and_click(self.driver, By.XPATH, login_btn_xpath, timeout=3):
                     break
             time.sleep(1)

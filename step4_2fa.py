@@ -674,8 +674,8 @@ class Instagram2FAStep:
                     # [ANTI-FREEZE Check]
                     current_state = self._get_page_state() # Check nhanh bằng JS
                     print(f"   [Step 4] Current page state: {current_state}")
-                    if current_state == 'BROKEN' or current_state == 'SUSPENDED':
-                         raise Exception("STOP_FLOW_2FA: Page Broken/Suspended while waiting for key")
+                    if current_state == 'BROKEN' or current_state == 'SUSPENDED' or current_state == 'RESTRICTED':
+                         raise Exception("STOP_FLOW_2FA: Page Broken/Suspended/Restricted while waiting for key")
                     if "two_factor" not in self.driver.current_url and "challenge" not in self.driver.current_url:
                          raise Exception("STOP_FLOW_2FA: Redirected away from 2FA page")
                     if current_state == 'ALREADY_ON': return "ALREADY_2FA_ON"
