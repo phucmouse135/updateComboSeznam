@@ -16,7 +16,7 @@ class InstagramPostLoginStep:
         3. Crawl Dữ liệu (Post, Follower, Following).
         4. Trích xuất Cookie mới.
         """
-        print(f"   [Step 3] Processing Post-Login for {username}...")
+        print(f"[{username}]   [Step 3] Processing Post-Login for {username}...")
         
         # 1. Xử lý các Popup/Màn hình chắn (Vòng lặp check)
         self._handle_interruptions()

@@ -51,10 +51,10 @@ class InstagramLoginStep:
             return False
 
     def perform_login(self, username, password):
-        print(f"   [Step 1] Login as {username}...")
+        print(f"[{username}]   [Step 1] Login as {username}...")
 
         # --- GIAI ĐOẠN 1: CLICK ALLOW ALL COOKIES POPUP ---
-        print("   [Step 1] Checking for 'Allow all cookies' popup...")
+        print(f"[{username}]   [Step 1] Checking for 'Allow all cookies' popup...")
         # Maximize window to ensure buttons are not obscured
         # self.driver.maximize_window()
         cookie_button_selectors = [
@@ -71,14 +71,14 @@ class InstagramLoginStep:
 
         for by, selector in cookie_button_selectors:
             if wait_and_click(self.driver, by, selector, timeout=5):
-                print("   [Step 1] Clicked 'Allow all cookies' button")
+                print(f"[{username}]   [Step 1] Clicked 'Allow all cookies' button")
                 time.sleep(2)  # Wait for popup to disappear
                 break
         else:
-            print("   [Step 1] 'Allow all cookies' button not found or already dismissed")
+            print(f"[{username}]   [Step 1] 'Allow all cookies' button not found or already dismissed")
 
         # --- GIAI ĐOẠN 2: NHẬP USER (TỐI ƯU TỐC ĐỘ) ---
-        print("   [Step 1] Entering Username...")
+        print(f"[{username}]   [Step 1] Entering Username...")
         user_css_group = "input[name='email'], input[name='username'], input[id^='_r_'][type='text']"
         user_start = time.time()
         # Max 30s for user input
@@ -89,7 +89,7 @@ class InstagramLoginStep:
                     user_input.clear()
                     user_input.send_keys(username)
                 except:
-                    print("   [Step 1] Retry sending username...")
+                    print(f"[{username}]   [Step 1] Retry sending username...")
                     wait_and_send_keys(self.driver, By.CSS_SELECTOR, user_css_group, username)
                 break
             time.sleep(1)
@@ -97,7 +97,7 @@ class InstagramLoginStep:
             return "FAIL_FIND_INPUT_USER_TIMEOUT"
 
         # --- GIAI ĐOẠN 3: NHẬP PASSWORD (TỐI ƯU TỐC ĐỘ) ---
-        print("   [Step 1] Entering Password...")
+        print(f"[{username}]   [Step 1] Entering Password...")
         pass_css_group = "input[name='pass'], input[name='password'], input[id^='_r_'][type='password']"
         pass_start = time.time()
         # Max 30s for password input
@@ -115,7 +115,7 @@ class InstagramLoginStep:
             return "FAIL_FIND_INPUT_PASS_TIMEOUT"
 
         # --- GIAI ĐOẠN 4: CLICK LOGIN ---
-        print("   [Step 1] Clicking Login...")
+        print(f"[{username}]   [Step 1] Clicking Login...")
         login_start = time.time()
         # Max 15s for login button
         while time.time() - login_start < 15:
@@ -138,33 +138,33 @@ class InstagramLoginStep:
                 wait_dom_ready(self.driver, timeout=20)
                 break
             time.sleep(3)
-        status = self._wait_for_login_result(timeout=120)
+        status = self._wait_for_login_result(username, timeout=120)
         
         # Handle cookie consent popup after login if detected
         if status == "COOKIE_CONSENT_POPUP":
-            print("   [Step 1] Handling cookie consent popup after login...")
+            print(f"[{username}]   [Step 1] Handling cookie consent popup after login...")
             for by, selector in cookie_button_selectors:
                 if wait_and_click(self.driver, by, selector, timeout=5):
-                    print("   [Step 1] Clicked 'Allow all cookies' button after login")
+                    print(f"[{username}]   [Step 1] Clicked 'Allow all cookies' button after login")
                     time.sleep(2)  # Wait for popup to disappear
                     break
             else:
-                print("   [Step 1] 'Allow all cookies' button not found after login")
+                print(f"[{username}]   [Step 1] 'Allow all cookies' button not found after login")
             
             wait_dom_ready(self.driver, timeout=30)
-            status = self._detect_initial_status()
-            print(f"   [Step 1] Status after cookie handling: {status}")
+            status = self._detect_initial_status(username)
+            print(f"[{username}]   [Step 1] Status after cookie handling: {status}")
         
-        print(f"   [Step 1] Login result detected: {status}")
+        print(f"[{username}]   [Step 1] Login result detected: {status}")
         return status
 
-    def _wait_for_login_result(self, timeout=180):
-        print("   [Step 1] Waiting for login result...")
+    def _wait_for_login_result(self, username, timeout=180):
+        print(f"   [{username}] [Step 1] Waiting for login result...")
         end_time = time.time() + timeout
         
         while time.time() < end_time:
-            status = self._detect_initial_status()
-            print(f"   [Step 1] Intermediate login status: {status}")
+            status = self._detect_initial_status(username)
+            print(f"   [{username}] [Step 1] Intermediate login status: {status}")
             
             # Nếu status đã rõ ràng (không phải Unknown/Retry) -> Return ngay
             if status not in ["LOGGED_IN_UNKNOWN_STATE"]:
@@ -172,14 +172,14 @@ class InstagramLoginStep:
             
             time.sleep(3)  # Poll nhẹ
             
-        print(f"   [Step 1] Timeout reached after {timeout} seconds. Current URL: {self.driver.current_url}")
+        print(f"   [{username}] [Step 1] Timeout reached after {timeout} seconds. Current URL: {self.driver.current_url}")
         try:
             body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
-            print(f"   [Step 1] Body text at timeout: {body_text[:500]}...")  # First 500 chars
+            print(f"   [{username}] [Step 1] Body text at timeout: {body_text[:500]}...")  # First 500 chars
         except Exception as e:
-            print(f"   [Step 1] Could not get body text at timeout: {e}")
+            print(f"   [{username}] [Step 1] Could not get body text at timeout: {e}")
         return "TIMEOUT_LOGIN_CHECK"
-    def _detect_initial_status(self):
+    def _detect_initial_status(self, username):
         """
         Quét DOM để xác định trạng thái sơ bộ sau khi nhấn Login.
         (GIỮ NGUYÊN TEXT LỖI TỪ BẢN GỐC)
@@ -203,12 +203,12 @@ class InstagramLoginStep:
             except Exception as e:
                 error_str = str(e).lower()
                 if "stale" in error_str or "element" in error_str and "reference" in error_str:
-                    print("   [Step 1] Stale element when getting body text, retrying...")
+                    print(f"   [{username}] [Step 1] Stale element when getting body text, retrying...")
                     time.sleep(1)
                     try:
                         body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
                     except Exception as e2:
-                        print("   [Step 1] Stale element retry also failed, returning unknown state")
+                        print(f"   [{username}] [Step 1] Stale element retry also failed, returning unknown state")
                         return "LOGGED_IN_UNKNOWN_STATE"
                 else:
                     return f"ERROR_DETECT: {str(e)}"
@@ -225,7 +225,15 @@ class InstagramLoginStep:
             
             # We suspect automated behavior on your account
             if 'we suspect automated behavior on your account' in body_text or 'prevent your account from being temporarily ' in body_text or 'verify you are a real person' in body_text or 'suspicious activity' in body_text:
-                return "UNUSUAL_ACTIVITY_DETECTED"
+                return "AUTOMATED_BEHAVIOR_DETECTED"
+            
+            # We suspect automated behavior on your account
+            if 'we suspect automated behavior on your account' in body_text:
+                return "AUTOMATED_BEHAVIOR_DETECTED"
+                
+            if 'prevent your account from being temporarily ' in body_text or 'verify you are a real person' in body_text or 'suspicious activity' in body_text:
+                return "AUTOMATED_BEHAVIOR_DETECTED"
+            
             
             #  We couldn't connect to Instagram. Make sure you're connected to the internet and try again. 
             if "we couldn't connect to instagram" in body_text and "make sure you're connected to the internet" in body_text:
@@ -303,12 +311,23 @@ class InstagramLoginStep:
                     except Exception as e:
                         error_str = str(e).lower()
                         if "stale" in error_str or ("element" in error_str and "reference" in error_str):
-                            print("   [Step 1] Stale element in status check loop, retrying...")
+                            print(f"   [{username}] [Step 1] Stale element in status check loop, retrying...")
                             time.sleep(1)
                             continue
                         else:
                             raise e  # Re-raise to be caught by outer except
                     current_url = self.driver.current_url
+                    
+                    # We suspect automated behavior on your account
+                    if 'we suspect automated behavior on your account' in body_text or 'prevent your account from being temporarily ' in body_text or 'verify you are a real person' in body_text or 'suspicious activity' in body_text:
+                        return "AUTOMATED_BEHAVIOR_DETECTED"
+                    
+                    # We suspect automated behavior on your account
+                    if 'we suspect automated behavior on your account' in body_text:
+                        return "AUTOMATED_BEHAVIOR_DETECTED"
+                        
+                    if 'prevent your account from being temporarily ' in body_text or 'verify you are a real person' in body_text or 'suspicious activity' in body_text:
+                        return "AUTOMATED_BEHAVIOR_DETECTED"
 
                     # you need to request help logging in To secure your account, you need to request help logging in
                     if "you need to request help logging in" in body_text or "to secure your account, you need to request help logging in" in body_text:
@@ -438,13 +457,13 @@ class InstagramLoginStep:
                     # Log into Instagram , password input 
                     if "log into instagram" in body_text or "password" in body_text or "mobile number, username, or email" in body_text or "log in with facebook" in body_text or "create new account" in body_text:
                         self.count += 1
-                        if self.count >=20:
+                        if self.count >=30:
                             return "LOGIN_FAILED"
                     
                     # Nếu vẫn còn ô password -> Login chưa qua (có thể đang loading)
                     if len(self.driver.find_elements(By.CSS_SELECTOR, "input[type='password']")) > 0:
                         self.count += 1
-                        if self.count >=20:
+                        if self.count >=30:
                             return "LOGIN_FAILED_RETRY"
 
                     # Nếu không xác định được trạng thái, kiểm tra loading hoặc url đứng yên
@@ -463,12 +482,12 @@ class InstagramLoginStep:
                     # Nếu có loading hoặc url không đổi thì tiếp tục chờ
                     if loading_found or current_url == last_url:
                         if time.time() - start_time > 180:
-                            print(f"   [Step 1] Inner loop timeout after 180 seconds. Current URL: {current_url}")
+                            print(f"   [{username}] [Step 1] Inner loop timeout after 180 seconds. Current URL: {current_url}")
                             try:
                                 body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
-                                print(f"   [Step 1] Body text at inner timeout: {body_text[:500]}...")
+                                print(f"   [{username}] [Step 1] Body text at inner timeout: {body_text[:500]}...")
                             except Exception as e:
-                                print(f"   [Step 1] Could not get body text at inner timeout: {e}")
+                                print(f"   [{username}] [Step 1] Could not get body text at inner timeout: {e}")
                             break
                         time.sleep(1)
                         last_url = current_url

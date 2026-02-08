@@ -504,14 +504,14 @@ class InstagramExceptionStep:
         # Chống đệ quy vô tận (giới hạn 20 bước nhảy trạng thái)
         if depth > 20:
              raise Exception("STOP_FLOW_LOOP: Max recursion depth reached")
-        print(f"   [Step 2] Processing status: {status}")
+        print(f"   [{ig_username}] [Step 2] Processing status: {status}")
         if not self._is_driver_alive():
             raise Exception("STOP_FLOW_CRASH: Browser Closed")
 
         # GET_HELP_LOG_IN
         if status == "GET_HELP_LOG_IN":
             # fail 
-            print("   [Step 2] Detected 'Get Help Logging In' - Failing out of flow.")
+            print(f"   [{ig_username}] [Step 2] Detected 'Get Help Logging In' - Failing out of flow.")
             raise Exception("GET_HELP_LOG_IN")
 
         success_statuses = [
@@ -519,13 +519,13 @@ class InstagramExceptionStep:
             "NEW_MESSAGING_TAB", "SUCCESS"
         ]
         if status in success_statuses:
-            print(f"   [Step 2] Success status reached: {status}")
+            print(f"   [{ig_username}] [Step 2] Success status reached: {status}")
             return status
         
         
         # DATA_PROCESSING_FOR_ADS
         if status == "DATA_PROCESSING_FOR_ADS":
-            print("   [Step 2] Handling Data Processing For Ads...")
+            print(f"   [{ig_username}] [Step 2] Handling Data Processing For Ads...")
             # click not now 
             self._robust_click_button([
                 ("js", """
@@ -554,7 +554,7 @@ class InstagramExceptionStep:
             time.sleep(2)
             new_status = self._check_verification_result()
             if new_status == status:
-                print("   [Step 2] Status unchanged after handling Data Processing For Ads, trying to navigate away")
+                print(f"   [{ig_username}] [Step 2] Status unchanged after handling Data Processing For Ads, trying to navigate away")
                 new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
@@ -563,7 +563,7 @@ class InstagramExceptionStep:
         # "REAL_BIRTHDAY_REQUIRED"
         if status == "REAL_BIRTHDAY_REQUIRED":
             # reload instagram to trigger birthday screen
-            print("   [Step 2] Handling Real Birthday Required - Reloading Instagram...")
+            print(f"   [{ig_username}] [Step 2] Handling Real Birthday Required - Reloading Instagram...")
             self.driver.get("https://www.instagram.com/")
             WebDriverWait(self.driver, 10).until(lambda d: d.execute_script("return document.readyState") == "complete")
             new_status = self._check_verification_result()
@@ -571,7 +571,7 @@ class InstagramExceptionStep:
         
         # COOKIE_CONSENT_POPUP
         if status == "COOKIE_CONSENT_POPUP":
-            print("   [Step 2] Handling Cookie Consent Popup...")
+            print(f"   [{ig_username}] [Step 2] Handling Cookie Consent Popup...")
             self.step3_post_login._handle_cookie_consent()
             time.sleep(2)
             
@@ -581,7 +581,7 @@ class InstagramExceptionStep:
         
         # CONFIRM_TRUSTED_DEVICE
         if status == "CONFIRM_TRUSTED_DEVICE":
-            print("   [Step 2] Handling Confirm Trusted Device...")
+            print(f"   [{ig_username}] [Step 2] Handling Confirm Trusted Device...")
             # Click "Close" button using robust method with more selectors
             success = self._robust_click_button([
                 ("js", """
@@ -612,9 +612,9 @@ class InstagramExceptionStep:
                 ("css", "button")  # Last resort - any button
             ])
             if success:
-                print("   [Step 2] Successfully clicked close/dismiss button")
+                print(f"   [{ig_username}] [Step 2] Successfully clicked close/dismiss button")
             else:
-                print("   [Step 2] Could not find close button, waiting for auto-dismiss or page change")
+                print(f"   [{ig_username}] [Step 2] Could not find close button, waiting for auto-dismiss or page change")
                 # Wait a bit for potential auto-dismiss
                 time.sleep(5)
             
@@ -622,7 +622,7 @@ class InstagramExceptionStep:
             time.sleep(2)
             new_status = self._check_verification_result()
             if new_status == status:
-                print("   [Step 2] Status unchanged, trying to navigate away from trusted device dialog")
+                print(f"   [{ig_username}] [Step 2] Status unchanged, trying to navigate away from trusted device dialog")
                 # Try to click outside the dialog or refresh the page
                 try:
                     body = self.driver.find_element(By.TAG_NAME, "body")
@@ -638,7 +638,7 @@ class InstagramExceptionStep:
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         # RETRY_LOGIN_2
         if status == "RETRY_LOGIN_2":
-            print("   [Step 2] Handling Retry Login 2...")
+            print(f"   [{ig_username}] [Step 2] Handling Retry Login 2...")
             # dien lai username
             username_input = wait_element(self.driver, By.NAME, "username", timeout=10)
             if username_input:
@@ -648,7 +648,7 @@ class InstagramExceptionStep:
                 username_input.send_keys(Keys.ENTER)
                 WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             else:
-                print("   [Step 2] Could not find username input to retry login.")
+                print(f"   [{ig_username}] [Step 2] Could not find username input to retry login.")
                 
             wait_dom_ready(self.driver, timeout=10)
             time.sleep(2)
@@ -661,7 +661,7 @@ class InstagramExceptionStep:
                 password_input.send_keys(Keys.ENTER)
                 WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             else:
-                print("   [Step 2] Could not find password input to retry login.")
+                print(f"   [{ig_username}] [Step 2] Could not find password input to retry login.")
             wait_dom_ready(self.driver, timeout=10)
             time.sleep(2)
             
@@ -673,7 +673,7 @@ class InstagramExceptionStep:
         # POST_VIOLATES_COMMUNITY_STANDARDS 
         if status == "POST_VIOLATES_COMMUNITY_STANDARDS":
             # click OK 
-            print("   [Step 2] Handling Post Violates Community Standards...")
+            print(f"   [{ig_username}] [Step 2] Handling Post Violates Community Standards...")
             self._robust_click_button([
                 ("xpath", "//button[contains(text(), 'OK')]"),
                 ("css", "button[type='button']"),
@@ -695,7 +695,7 @@ class InstagramExceptionStep:
 
         # ACCOUNTS_CENTER_DATA_SHARING
         if status == "ACCOUNTS_CENTER_DATA_SHARING":
-            print("   [Step 2] Handling Accounts Center Data Sharing...")
+            print(f"   [{ig_username}] [Step 2] Handling Accounts Center Data Sharing...")
             # click radio button use data across accounts
             self._robust_click_button([("xpath", "//input[@type='radio' and (contains(@value, 'yes') or contains(@aria-label, 'Yes'))]"),
                 ("css", "input[type='radio'][value='yes'], input[type='radio'][aria-label*='Yes']")
@@ -713,6 +713,7 @@ class InstagramExceptionStep:
                         if (buttons[i].textContent.trim().toLowerCase().includes('next')) {
                             return buttons[i];
                         }
+                    }
                     return null;
                 """)
             ])
@@ -727,7 +728,7 @@ class InstagramExceptionStep:
         
         # RETRY LOGIN
         if status == "RETRY_LOGIN":
-            print("   [Step 2] Handling Retry Login...")
+            print(f"   [{ig_username}] [Step 2] Handling Retry Login...")
             # click continue button
             self._robust_click_button([
                 ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
@@ -753,7 +754,7 @@ class InstagramExceptionStep:
                 password_input.send_keys(Keys.ENTER)
                 WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             else:
-                print("   [Step 2] Could not find password input to retry login.")
+                print(f"   [{ig_username}] [Step 2] Could not find password input to retry login.")
                 
             wait_dom_ready(self.driver, timeout=10)
             time.sleep(2)
@@ -764,7 +765,7 @@ class InstagramExceptionStep:
         
         # UNUSUAL_ACTIVITY_DETECTED
         if status == "UNUSUAL_ACTIVITY_DETECTED":
-            print("   [Step 2] Handling Unusual Activity Detected...")
+            print(f"   [{ig_username}] [Step 2] Handling Unusual Activity Detected...")
             # click Dismiss button
             self._robust_click_button([
                 ("xpath", "//button[contains(text(), 'Dismiss') or contains(text(), 'Bỏ qua')]"),
@@ -775,6 +776,31 @@ class InstagramExceptionStep:
                         if (buttons[i].textContent.trim().toLowerCase().includes('dismiss') || buttons[i].textContent.trim().toLowerCase().includes('bỏ qua')) {
                             return buttons[i];
                         }
+                    return null;
+                """)
+            ])
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            time.sleep(2)
+            new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+        
+        # AUTOMATED_BEHAVIOR_DETECTED
+        if status == "AUTOMATED_BEHAVIOR_DETECTED":
+            print(f"   [{ig_username}] [Step 2] Automated Behavior Detected. Attempting to dismiss...")
+            self._robust_click_button([
+                ("xpath", "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'dismiss') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'bỏ qua') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'ignore')] | //div[@role='button' and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'dismiss')]"),
+                ("xpath", "//button[contains(text(), 'Dismiss')]"),
+                ("xpath", "//div[@role='button' and contains(text(), 'Dismiss')]"),
+                ("css", "button[type='button'], div[role='button']"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button, div[role=\"button\"]');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim().toLowerCase().includes('dismiss') || buttons[i].textContent.trim().toLowerCase().includes('bỏ qua')) {
+                            return buttons[i];
+                        }
+                    }
                     return null;
                 """)
             ])
@@ -1250,12 +1276,35 @@ class InstagramExceptionStep:
                     print(f"   [Step 2] Status unchanged after handling {status}, refreshing to avoid hang...")
                     self.driver.refresh()
                     wait_dom_ready(self.driver, timeout=20)
-                    time.sleep(4)
                     new_status = self._check_verification_result()
                 # de quy kiem tra lai trang thai
                 return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             else:   
                 return self._handle_birthday_screen()
+            
+        # AUTOMATED_BEHAVIOR_DETECTED 
+        if status == "AUTOMATED_BEHAVIOR_DETECTED":
+            # click Dismiss button
+            print("   [Step 2] Automated Behavior Detected. Attempting to dismiss...")
+            self._robust_click_button([
+                ("xpath", "//button[contains(text(), 'Dismiss') or contains(text(), 'Bỏ qua')]"),
+                ("css", "button[type='button']"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        if (buttons[i].textContent.trim().toLowerCase().includes('dismiss') || buttons[i].textContent.trim().toLowerCase().includes('bỏ qua')) {
+                            return buttons[i];
+                        }
+                    }
+                    return null;
+                """)
+            ])
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            time.sleep(5)
+            new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
 
         # XỬ LÝ CHECKPOINT MAIL
         if status == "CHECKPOINT_MAIL":
@@ -1271,7 +1320,6 @@ class InstagramExceptionStep:
                 print(f"   [Step 2] Status unchanged after handling {status}, refreshing to avoid hang...")
                 self.driver.refresh()
                 wait_dom_ready(self.driver, timeout=20)
-                time.sleep(4)
                 new_status = self._check_verification_result()
                 
             # de quy kiem tra lai trang thai
@@ -1769,7 +1817,7 @@ class InstagramExceptionStep:
                     if current_value != code:
                         print("   [Step 2] send_keys failed, trying JS...")
                         # Fallback to JS
-                        self.driver.execute_script("arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", code_input, code)
+                        self.driver.execute_script("arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', {{ bubbles: true }}));", code_input, code)
                         time.sleep(0.2)
                         current_value = code_input.get_attribute('value')
                         print(f"   [Step 2] Input field value after JS: '{current_value}'")
@@ -1777,7 +1825,8 @@ class InstagramExceptionStep:
                     code_input.send_keys(Keys.ENTER)
                     time.sleep(1)
                     if "security_code" in self.driver.current_url:
-                        wait_and_click(self.driver, By.XPATH, "//button[@type='submit'] | //button[contains(text(), 'Confirm')] | //button[contains(text(), 'Xác nhận')]", timeout=20)
+                        wait_and_click(self.driver, By.XPATH, "//button[@type='submit'] | //button[contains(text(), 'Confirm')] | //button[contains(text(), 'Xác nhận')]",
+                        timeout=20)
                     print("   [Step 2] Code input completed.")
                 except Exception as e:
                     print(f"   [Step 2] Error inputting code: {e}")
@@ -2015,8 +2064,11 @@ class InstagramExceptionStep:
                     return "RETRY_LOGIN"
                 
                 # We suspect automated behavior on your account
-                if 'we suspect automated behavior on your account' in body_text or 'prevent your account from being temporarily ' in body_text or 'verify you are a real person' in body_text or 'suspicious activity' in body_text:
-                    return "UNUSUAL_ACTIVITY_DETECTED"
+                if 'we suspect automated behavior on your account' in body_text:
+                    return "AUTOMATED_BEHAVIOR_DETECTED"
+                
+                if 'prevent your account from being temporarily ' in body_text or 'verify you are a real person' in body_text or 'suspicious activity' in body_text:
+                    return "AUTOMATED_BEHAVIOR_DETECTED"
                 
                 if "the login information you entered is incorrect" in body_text or \
                        "incorrect username or password" in body_text or \
