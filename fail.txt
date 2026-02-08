@@ -267,3 +267,4 @@ johndoll9533	hep59BV04ga1@@		porkls@seznam.cz	hep59BV04ga1@@	LOGIN_FAILED				Fai
 nikolka.923	hep59BV04ga1@@		nikolka.923@seznam.cz	hep59BV04ga1@@	LOGIN_FAILED				Failed | Failed in 37.8s
 zivotnezmenis	hep59BV04ga1@@		nina708@seznam.cz	hep59BV04ga1@@	LOGIN_FAILED				Failed | Failed in 41.7s
 zabava.souteze1589	hep59BV04ga1@@		rolly18@seznam.cz	hep59BV04ga1@@	LOGIN_FAILED_INCORRECT				Failed | Failed in 49.9s
+sabinabartakova2017	hep59BV04ga1@@		sabinabartakova@seznam.cz	hep59BV04ga1@@	LOGIN_FAILED_RETRY				Failed | Failed in 67.7s

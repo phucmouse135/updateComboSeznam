@@ -408,9 +408,9 @@ class Instagram2FAStep:
             print(f"   [{target_username}] [Step 4] Error handled gracefully: {err_msg}")
             
             # Trả về nội dung lỗi để điền vào cột 2FA
-            # Loại bỏ prefix "STOP_FLOW_2FA: " cho ngắn gọn nếu muốn
-            clean_err = err_msg.replace("STOP_FLOW_2FA: ", "").strip()
-            return f"ERROR_2FA: {clean_err}"
+            # Loại bỏ prefix "STOP_FLOW_2FA: " và "ERROR_2FA: " cho ngắn gọn
+            clean_err = err_msg.replace("STOP_FLOW_2FA: ", "").replace("ERROR_2FA: ", "").strip()
+            return clean_err
 
     # ==========================================
     # CORE HELPERS

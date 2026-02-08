@@ -790,9 +790,10 @@ class InstagramExceptionStep:
         if status == "AUTOMATED_BEHAVIOR_DETECTED":
             print(f"   [{ig_username}] [Step 2] Automated Behavior Detected. Attempting to dismiss...")
             self._robust_click_button([
-                ("xpath", "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'dismiss') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'bỏ qua') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'ignore')] | //div[@role='button' and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'dismiss')]"),
                 ("xpath", "//button[contains(text(), 'Dismiss')]"),
+                ("xpath", "//button[contains(text(), 'dismiss')]"),
                 ("xpath", "//div[@role='button' and contains(text(), 'Dismiss')]"),
+                ("xpath", "//div[@role='button' and contains(text(), 'dismiss')]"),
                 ("css", "button[type='button'], div[role='button']"),
                 ("js", """
                     var buttons = document.querySelectorAll('button, div[role=\"button\"]');
