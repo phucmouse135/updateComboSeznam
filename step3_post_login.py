@@ -104,8 +104,15 @@ class InstagramPostLoginStep:
                         time.sleep(3)
                         return  # Exit after reload
                     
-                    body_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
-                    if "want to subscribe or continue using our products free of charge with ads?" in body_text:
+                    # Check if body element exists before accessing
+                    try:
+                        body_element = self.driver.find_element(By.TAG_NAME, "body")
+                        body_text = body_element.text.lower()
+                    except Exception as body_e:
+                        print(f"   [Step 3] Body element not found, skipping text check: {body_e}")
+                        body_text = ""
+                    
+                    if body_text and "want to subscribe or continue using our products free of charge with ads?" in body_text:
                         print("   [Step 3] Detected ad subscription popup text. Reloading Instagram...")
                         self.driver.get("https://www.instagram.com/")
                         wait_dom_ready(self.driver, timeout=10)
@@ -113,7 +120,7 @@ class InstagramPostLoginStep:
                         return  # Exit after reload
                     
 
-                    if ("page isn’t working" in body_text or "http error" in body_text or
+                    if body_text and ("page isn’t working" in body_text or "http error" in body_text or
                         'something went wrong' in body_text or 'đã xảy ra sự cố' in body_text or
                         "this page isn’t working" in body_text or 'the site is temporarily unavailable' in body_text or
                         "reload" in body_text  or "useragent mismatch" in body_text):

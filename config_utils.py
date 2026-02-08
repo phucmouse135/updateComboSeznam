@@ -1,4 +1,5 @@
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.by import By
 import threading
 import time
 from selenium import webdriver
@@ -135,6 +136,8 @@ def wait_dom_ready(driver, timeout=5, poll=0.1):
     while time.time() < end_time:
         try:
             if driver.execute_script("return document.readyState") == "complete":
+                # Also check if body element exists
+                driver.find_element(By.TAG_NAME, "body")
                 return True
         except Exception:
             pass

@@ -410,7 +410,7 @@ class Instagram2FAStep:
             # Trả về nội dung lỗi để điền vào cột 2FA
             # Loại bỏ prefix "STOP_FLOW_2FA: " và "ERROR_2FA: " cho ngắn gọn
             clean_err = err_msg.replace("STOP_FLOW_2FA: ", "").replace("ERROR_2FA: ", "").strip()
-            return clean_err
+            return f"ERROR_2FA: {clean_err}"
 
     # ==========================================
     # CORE HELPERS

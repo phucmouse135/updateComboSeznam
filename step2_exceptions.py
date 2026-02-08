@@ -69,6 +69,14 @@ class InstagramExceptionStep:
 
     def _robust_click_button(self, selectors, timeout=20, retries=3):
         """Robust button clicking with multiple selectors and retries."""
+        # First, ensure page is loaded
+        try:
+            WebDriverWait(self.driver, 5).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            self.driver.find_element(By.TAG_NAME, "body")  # Check if body exists
+        except Exception as e:
+            print(f"   [Step 2] Page not ready for clicking: {e}")
+            return False
+        
         print(f"   [Step 2] Attempting to click button with {len(selectors)} selectors...")
         for attempt in range(retries):
             for selector_type, sel in selectors:
@@ -731,12 +739,13 @@ class InstagramExceptionStep:
             print(f"   [{ig_username}] [Step 2] Handling Retry Login...")
             # click continue button
             self._robust_click_button([
-                ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
+                ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục') or contains(text(), 'Next') or contains(text(), 'Continue as') or contains(text(), 'Proceed')]"),
                 ("css", "button[type='submit']"),
                 ("js", """
                     var buttons = document.querySelectorAll('button');
                     for (var i = 0; i < buttons.length; i++) {
-                        if (buttons[i].textContent.trim().toLowerCase().includes('continue') || buttons[i].textContent.trim().toLowerCase().includes('tiếp tục')) {
+                        var text = buttons[i].textContent.trim().toLowerCase();
+                        if (text.includes('continue') || text.includes('tiếp tục') || text.includes('next') || text.includes('proceed')) {
                             return buttons[i];
                         }
                     }
@@ -790,11 +799,6 @@ class InstagramExceptionStep:
         if status == "AUTOMATED_BEHAVIOR_DETECTED":
             print(f"   [{ig_username}] [Step 2] Automated Behavior Detected. Attempting to dismiss...")
             self._robust_click_button([
-                ("xpath", "//button[contains(text(), 'Dismiss')]"),
-                ("xpath", "//button[contains(text(), 'dismiss')]"),
-                ("xpath", "//div[@role='button' and contains(text(), 'Dismiss')]"),
-                ("xpath", "//div[@role='button' and contains(text(), 'dismiss')]"),
-                ("css", "button[type='button'], div[role='button']"),
                 ("js", """
                     var buttons = document.querySelectorAll('button, div[role=\"button\"]');
                     for (var i = 0; i < buttons.length; i++) {
@@ -803,7 +807,12 @@ class InstagramExceptionStep:
                         }
                     }
                     return null;
-                """)
+                """),
+                ("css", "button[type='button'], div[role='button']"),
+                ("xpath", "//button[contains(text(), 'Dismiss')]"),
+                ("xpath", "//button[contains(text(), 'dismiss')]"),
+                ("xpath", "//div[@role='button' and contains(text(), 'Dismiss')]"),
+                ("xpath", "//div[@role='button' and contains(text(), 'dismiss')]")
             ])
             WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             time.sleep(2)
@@ -819,12 +828,13 @@ class InstagramExceptionStep:
             self._robust_click_button([("xpath", "(//input[@type='radio'])[2]"), ("css", "input[type='radio']:nth-of-type(2)")])
             time.sleep(1)
             self._robust_click_button([
-                ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
+                ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục') or contains(text(), 'Next') or contains(text(), 'Continue as') or contains(text(), 'Proceed')]"),
                 ("css", "button[type='submit']"),
                 ("js", """
                     var buttons = document.querySelectorAll('button');
                     for (var i = 0; i < buttons.length; i++) {
-                        if (buttons[i].textContent.trim().toLowerCase().includes('continue') || buttons[i].textContent.trim().toLowerCase().includes('tiếp tục')) {
+                        var text = buttons[i].textContent.trim().toLowerCase();
+                        if (text.includes('continue') || text.includes('tiếp tục') || text.includes('next') || text.includes('proceed')) {
                             return buttons[i];
                         }
                     }
@@ -901,12 +911,13 @@ class InstagramExceptionStep:
             print("   [Step 2] Handling Retry Unusual Login...")
             # Nhấn button Continue 
             self._robust_click_button([
-                ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
+                ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục') or contains(text(), 'Next') or contains(text(), 'Continue as') or contains(text(), 'Proceed')]"),
                 ("css", "button[type='submit']"),
                 ("js", """
                     var buttons = document.querySelectorAll('button');
                     for (var i = 0; i < buttons.length; i++) {
-                        if (buttons[i].textContent.trim().toLowerCase().includes('continue') || buttons[i].textContent.trim().toLowerCase().includes('tiếp tục')) {
+                        var text = buttons[i].textContent.trim().toLowerCase();
+                        if (text.includes('continue') || text.includes('tiếp tục') || text.includes('next') || text.includes('proceed')) {
                             return buttons[i];
                         }
                     }
@@ -1901,9 +1912,10 @@ class InstagramExceptionStep:
             if check_result in ["CHECKPOINT_MAIL", "WRONG_CODE", "CAN_GET_NEW_CODE", "TIMEOUT"]:
                 if attempt < max_retries:
                     if check_result in ["WRONG_CODE", "CAN_GET_NEW_CODE"]:
-                        # Click "Get new code" link using JS for precision
+                        # Click "Get new code" link or button using JS for precision
                         try:
-                            get_new_link = self.driver.execute_script("""
+                            get_new_element = self.driver.execute_script("""
+                                // Check links first
                                 var links = document.querySelectorAll('a');
                                 for (var i = 0; i < links.length; i++) {
                                     var text = links[i].textContent.trim().toLowerCase();
@@ -1913,14 +1925,24 @@ class InstagramExceptionStep:
                                         return links[i];
                                     }
                                 }
+                                // Check buttons
+                                var buttons = document.querySelectorAll('button');
+                                for (var i = 0; i < buttons.length; i++) {
+                                    var text = buttons[i].textContent.trim().toLowerCase();
+                                    if (text.includes('get a new one') || text.includes('get new code') || text.includes('get a new code') || 
+                                        text.includes('didn\'t get a code') || text.includes('didn\'t receive') || text.includes('resend') || 
+                                        text.includes('send new code') || text.includes('request new code') || text.includes('try again')) {
+                                        return buttons[i];
+                                    }
+                                }
                                 return null;
                             """)
-                            if get_new_link:
-                                self.driver.execute_script("arguments[0].click();", get_new_link)
+                            if get_new_element:
+                                self.driver.execute_script("arguments[0].click();", get_new_element)
                                 print("   [Step 2] Clicked 'Get new code' via JS.")
                                 time.sleep(2)  # Wait for new code to be sent
                             else:
-                                print("   [Step 2] 'Get new code' link not found via JS.")
+                                print("   [Step 2] 'Get new code' element not found via JS.")
                         except Exception as e:
                             print(f"   [Step 2] Error clicking 'Get new code' via JS: {e}")
                     print("   [Step 2] Code verification failed (wrong/rejected/timeout), retrying mail...")
