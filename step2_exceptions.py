@@ -795,31 +795,51 @@ class InstagramExceptionStep:
                 new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
         
-        # AUTOMATED_BEHAVIOR_DETECTED
+
+        # [CONSOLIDATED] AUTOMATED_BEHAVIOR_DETECTED
         if status == "AUTOMATED_BEHAVIOR_DETECTED":
             print(f"   [{ig_username}] [Step 2] Automated Behavior Detected. Attempting to dismiss...")
+            # Try specific "Dismiss" button first
             self._robust_click_button([
-                ("js", """
-                    var buttons = document.querySelectorAll('button, div[role=\"button\"]');
-                    for (var i = 0; i < buttons.length; i++) {
-                        if (buttons[i].textContent.trim().toLowerCase().includes('dismiss') || buttons[i].textContent.trim().toLowerCase().includes('bỏ qua')) {
-                            return buttons[i];
-                        }
+                 ("js", """
+                    var btns = document.querySelectorAll('button, div[role="button"]');
+                    for (var b of btns) {
+                        if (b.innerText.toLowerCase().trim() === 'dismiss' || b.innerText.toLowerCase().trim() === 'bỏ qua') return b;
                     }
                     return null;
-                """),
-                ("css", "button[type='button'], div[role='button']"),
-                ("xpath", "//button[contains(text(), 'Dismiss')]"),
-                ("xpath", "//button[contains(text(), 'dismiss')]"),
-                ("xpath", "//div[@role='button' and contains(text(), 'Dismiss')]"),
-                ("xpath", "//div[@role='button' and contains(text(), 'dismiss')]")
+                 """),
+                 ("xpath", "//button[text()='Dismiss']"),
+                 ("xpath", "//div[@role='button' and text()='Dismiss']"),
+                 # Then contains
+                 ("xpath", "//button[contains(text(), 'Dismiss')]"),
+                 ("xpath", "//div[@role='button' and contains(text(), 'Dismiss')]")
             ])
+            
             WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
-            time.sleep(2)
+            time.sleep(3)
             new_status = self._check_verification_result()
+             # If still same status, retry with broader selector
+            if new_status == status:
+                 print(f"   [{ig_username}] [Step 2] 'Dismiss' click didn't change status. Retrying with loose match...")
+                 self._robust_click_button([
+                      ("js", """
+                        var buttons = document.querySelectorAll('button, div[role="button"]');
+                        for (var i = 0; i < buttons.length; i++) {
+                            if (buttons[i].textContent.toLowerCase().includes('dismiss') || buttons[i].textContent.toLowerCase().includes('bỏ qua')) {
+                                return buttons[i];
+                            }
+                        }
+                        return null;
+                      """)
+                 ])
+                 time.sleep(3)
+                 new_status = self._check_verification_result()
+                 
             if new_status == status:
                 new_status = self._check_status_change_with_timeout(status, 15)
+            
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+
         
         # SUBSCRIBE_OR_CONTINUE
         if status == "SUBSCRIBE_OR_CONTINUE":
@@ -1294,29 +1314,9 @@ class InstagramExceptionStep:
             else:   
                 return self._handle_birthday_screen()
             
-        # AUTOMATED_BEHAVIOR_DETECTED 
-        if status == "AUTOMATED_BEHAVIOR_DETECTED":
-            # click Dismiss button
-            print("   [Step 2] Automated Behavior Detected. Attempting to dismiss...")
-            self._robust_click_button([
-                ("xpath", "//button[contains(text(), 'Dismiss') or contains(text(), 'Bỏ qua')]"),
-                ("css", "button[type='button']"),
-                ("js", """
-                    var buttons = document.querySelectorAll('button');
-                    for (var i = 0; i < buttons.length; i++) {
-                        if (buttons[i].textContent.trim().toLowerCase().includes('dismiss') || buttons[i].textContent.trim().toLowerCase().includes('bỏ qua')) {
-                            return buttons[i];
-                        }
-                    }
-                    return null;
-                """)
-            ])
-            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
-            time.sleep(5)
-            new_status = self._check_verification_result()
-            if new_status == status:
-                new_status = self._check_status_change_with_timeout(status, 15)
-            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+        # [DUPLICATE REMOVED]
+
+        # XỬ LÝ CHECKPOINT MAIL
 
         # XỬ LÝ CHECKPOINT MAIL
         if status == "CHECKPOINT_MAIL":
