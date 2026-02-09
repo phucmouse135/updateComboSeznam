@@ -908,3 +908,4 @@ noemi_belish	hep59BV04ga1@@		noemibitch@seznam.cz	hep59BV04ga1@@	EXCEPTION: LOG_
 beranice26	hep59BV04ga1@@		tedykol@seznam.cz	hep59BV04ga1@@	LOGIN_FAILED_INCORRECT				Failed | Failed in 51.4s
 that_magy	hep59BV04ga1@@		kdgcj@seznam.cz	hep59BV04ga1@@	EXCEPTION: LOG_IN_ANOTHER_DEVICE				Failed | Failed in 19.6s
 djdjdjsiw	hep59BV04ga1@@		dhddjdjdj@seznam.cz	hep59BV04ga1@@	FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION				Failed | Failed in 49.3s
+losputkos	hep59BV04ga1@@		cjfdd@seznam.cz	hep59BV04ga1@@	FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION				Failed | Failed in 52.1s

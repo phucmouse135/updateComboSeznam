@@ -663,17 +663,50 @@ class Instagram2FAStep:
         for attempt in range(max_retries):
             print(f"   [Step 4] Selection Attempt {attempt+1}/{max_retries}...")
             
-            # 1. Select Radio/Button
+            # 1. Select Radio/Button - Enhanced Selector
             result = self.driver.execute_script("""
-                var els = document.querySelectorAll("div[role='button'], label");
-                for (var i=0; i<els.length; i++) {
-                    var txt = els[i].innerText.toLowerCase();
-                    if (txt.includes("authentication app") || txt.includes("authenticator") || txt.includes("xác thực") || txt.includes("two-factor")) {
-                        els[i].click(); 
-                        return true;
+                function clickAuthOption() {
+                    var keywords = ["authentication app", "authenticator", "xác thực", "two-factor", "ứng dụng xác thực"];
+                    
+                    // Strategy A: Find by text in clickable elements
+                    var els = document.querySelectorAll("div[role='button'], label, span, div");
+                    for (var i=0; i<els.length; i++) {
+                        // Skip weak containers if we have better specific ones, but checking all is safer
+                        if (els[i].offsetParent === null) continue; // Check visibility
+                        
+                        var txt = els[i].innerText.toLowerCase();
+                        var isMatch = keywords.some(k => txt.includes(k));
+                        
+                        if (isMatch) {
+                            // Found text, try to find the click target
+                            
+                            // 1. If it's a label or button, click it
+                            if (els[i].tagName === 'LABEL' || els[i].getAttribute('role') === 'button') {
+                                els[i].click(); return true; 
+                            }
+                            
+                            // 2. Look up for a role='button' container
+                            var container = els[i].closest("div[role='button']");
+                            if (container) { container.click(); return true; }
+                            
+                            // 3. Look for a radio input nearby
+                            var radio = els[i].querySelector("input[type='radio']") || 
+                                        (els[i].parentElement ? els[i].parentElement.querySelector("input[type='radio']") : null);
+                            if (radio) { radio.click(); return true; }
+                        }
                     }
+                    
+                    // Strategy B: Find radio button with value if text fails
+                    var radios = document.querySelectorAll("input[type='radio']");
+                    for (var r of radios) {
+                         if (r.value === 'authenticator' || r.value === 'app') {
+                             r.click(); return true;
+                         }
+                    }
+                    
+                    return false;
                 }
-                return false;
+                return clickAuthOption();
             """)
             
             if result:
