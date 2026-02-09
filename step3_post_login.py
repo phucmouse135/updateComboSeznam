@@ -160,29 +160,39 @@ class InstagramPostLoginStep:
                     // --- ƯU TIÊN: POPUP "ACCOUNTS CENTER" ---
                     if (keywords.account_center_check.some(k => bodyText.includes(k))) {
                         if (bodyText.includes('keep using your info across these accounts?')) {
-                            // Select use info across accounts radio button
-                            let radios = document.querySelectorAll('input[type="radio"]');
-                            for (let radio of radios) {
-                                let label = document.querySelector(`label[for="${radio.id}"]`) || radio.closest('div').querySelector('span, div');
-                                if (label && label.innerText.toLowerCase().includes('use info across accounts')) {
-                                    radio.click();
-                                    if (label) label.click();
-                                    let container = radio.closest('div[role="button"]');
-                                    if (container) container.click();
-                                    let visualCircle = radio.previousElementSibling;
-                                    if (visualCircle) visualCircle.click();
-                                    // Then click next after a short delay
-                                    setTimeout(() => {
-                                        let buttons = document.querySelectorAll('button, div[role="button"]');
-                                        for (let btn of buttons) {
-                                            if (btn.offsetParent !== null && !btn.disabled && (btn.innerText.toLowerCase().trim() === 'next' || btn.innerText.toLowerCase().trim() === 'tiếp')) {
-                                                btn.click();
-                                            }
+                             // [UPDATED] Tìm element chứa text "Use info across accounts"
+                             var candidates = document.querySelectorAll("span, div, label");
+                             var target = null;
+                             for (var el of candidates) {
+                                 // Check exact match or close to it to avoid general text blocks
+                                 if (el.innerText && el.innerText.trim().toLowerCase() === "use info across accounts") {
+                                     target = el;
+                                     break;
+                                 }
+                             }
+                             
+                             if (target) {
+                                 target.click();
+                                 // Click parent container just in case
+                                 var parentBtn = target.closest("div[role='button']") || target.closest("label");
+                                 if (parentBtn) parentBtn.click();
+
+                                 // Click associated radio if exists nearby
+                                 var radio = target.parentElement ? target.parentElement.querySelector("input[type='radio']") : null;
+                                 if (radio) radio.click();
+                                 
+                                 // Click Next
+                                 setTimeout(() => {
+                                    var buttons = document.querySelectorAll('button, div[role="button"]');
+                                    for (var btn of buttons) {
+                                        var t = btn.innerText.toLowerCase().trim();
+                                        if (btn.offsetParent !== null && !btn.disabled && (t === 'next' || t === 'tiếp' || t === 'continue')) {
+                                            btn.click();
                                         }
-                                    }, 500);
-                                    return 'KEEP_INFO_USE_SELECTED';
-                                }
-                            }
+                                    }
+                                 }, 500); 
+                                 return 'KEEP_INFO_USE_SELECTED';
+                             }
                         } else {
                             let buttons = document.querySelectorAll('button, div[role="button"], span');
                             for (let btn of buttons) {

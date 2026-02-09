@@ -633,34 +633,93 @@ class Instagram2FAStep:
 
     def _select_auth_app_method(self, current_state):
         if self._get_page_state() == 'ALREADY_ON': return
-        print("   [Step 4] Selecting authentication app method...")
-        result = self.driver.execute_script("""
-            var els = document.querySelectorAll("div[role='button'], label");
-            for (var i=0; i<els.length; i++) {
-                var txt = els[i].innerText.toLowerCase();
-                if (txt.includes("authentication app") || txt.includes("authenticator") || txt.includes("xác thực") || txt.includes("two-factor")) {
-                    els[i].click(); 
-                    return true;
+        
+        # Check if we are already on Key Screen (STRICTER CHECK)
+        # Avoid false positives from "Copy" text in footer/copyright
+        is_select_app_state = self._get_page_state() == 'SELECT_APP'
+        
+        if not is_select_app_state:
+            # Only check for key screen if NOT definitely in 'Select App' state
+            safe_key_check = self.driver.execute_script("""
+                var keyBtns = document.querySelectorAll("div[role='button'], span[role='button'], button");
+                for (var b of keyBtns) {
+                    var t = b.innerText.toLowerCase();
+                    if (t === 'copy key' || t === 'sao chép khóa' || t === 'copy' || t === 'sao chép') {
+                        // Check context: nearby text should mention 'app' or 'key' to be safe, 
+                        // or just rely on the fact we strictly ruled out SELECT_APP
+                        return true;
+                    }
                 }
-            }
-            return false;
-        """)
-        if result:
-            print("   [Step 4] Clicked on authentication app option.")
-        else:
-            print("   [Step 4] Authentication app option not found.")
-        self._click_continue_robust()
-        wait_dom_ready(self.driver, timeout=10)  # Wait for page to load after clicking
-        poll_end = time.time() + 60  # Increased from 30 to 60 to wait longer for QR code to load
-        while time.time() < poll_end:
-            state = self._get_page_state()
-            print(f"   [Step 4] Polling page state: {state}")
-            if state == 'ALREADY_ON': return
-            if len(self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Copy key') or contains(text(), 'Sao chép') or contains(text(), 'Copy') or contains(text(), 'Sao')]") ) > 0: 
-                print("   [Step 4] Copy key button detected.")
-                time.sleep(5)  # Additional wait after button appears
+                return false;
+            """)
+            if safe_key_check:
+                print("   [Step 4] Already on Secret Key screen.")
                 return
+
+        print("   [Step 4] Selecting authentication app method...")
+        
+        # Retry loop for selecting method
+        max_retries = 3
+        for attempt in range(max_retries):
+            print(f"   [Step 4] Selection Attempt {attempt+1}/{max_retries}...")
+            
+            # 1. Select Radio/Button
+            result = self.driver.execute_script("""
+                var els = document.querySelectorAll("div[role='button'], label");
+                for (var i=0; i<els.length; i++) {
+                    var txt = els[i].innerText.toLowerCase();
+                    if (txt.includes("authentication app") || txt.includes("authenticator") || txt.includes("xác thực") || txt.includes("two-factor")) {
+                        els[i].click(); 
+                        return true;
+                    }
+                }
+                return false;
+            """)
+            
+            if result:
+                print("   [Step 4] Clicked on authentication app option.")
+            else:
+                print("   [Step 4] Authentication app option not found (May be pre-selected or diff UI).")
+            
             time.sleep(1)
+
+            # 2. Click Continue
+            self._click_continue_robust()
+            
+            # 3. Wait for transition
+            wait_start = time.time()
+            wait_timeout = 20 # Wait up to 20s for transition
+            
+            while time.time() - wait_start < wait_timeout:
+                state = self._get_page_state()
+                if state == 'ALREADY_ON': return
+                
+                # Check for Key Screen indicators (Strict JS check)
+                is_key_screen = self.driver.execute_script("""
+                    var body = document.body.innerText.toLowerCase();
+                    if (body.includes("help protect your account") || (body.includes("authentication app") && !body.includes("copy key"))) return false; // Still on Select App
+                    
+                    var keyBtns = document.querySelectorAll("div[role='button'], span[role='button'], button");
+                    for (var b of keyBtns) {
+                         var t = b.innerText.toLowerCase();
+                         if (t === 'copy key' || t === 'sao chép khóa' || t === 'copy' || t === 'sao chép') return true;
+                    }
+                    return false;
+                """)
+                
+                if is_key_screen:
+                    print("   [Step 4] Copy key button detected. Transition success.")
+                    time.sleep(3)
+                    return # SUCCESS
+                
+                time.sleep(1)
+            
+            print(f"   [Step 4] Transition timeout (Attempt {attempt+1}). Retrying selection...")
+            self.driver.refresh()
+            wait_dom_ready(self.driver, timeout=10)
+            time.sleep(2)
+        
+        raise Exception("STOP_FLOW_2FA: Failed to select Auth App method after 3 retries.")
 
     def _extract_secret_key(self, ig_username):
         """Lấy Secret Key (Có logic Anti-Freeze: Thoát nếu lỗi trang)."""
