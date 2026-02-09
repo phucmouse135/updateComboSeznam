@@ -799,15 +799,19 @@ class InstagramExceptionStep:
         # [CONSOLIDATED] AUTOMATED_BEHAVIOR_DETECTED
         if status == "AUTOMATED_BEHAVIOR_DETECTED":
             print(f"   [{ig_username}] [Step 2] Automated Behavior Detected. Attempting to dismiss...")
-            # Try specific "Dismiss" button first
+            # Try specific "Dismiss" button first (Updated for Flexbox/aria-label)
             self._robust_click_button([
                  ("js", """
                     var btns = document.querySelectorAll('button, div[role="button"]');
                     for (var b of btns) {
-                        if (b.innerText.toLowerCase().trim() === 'dismiss' || b.innerText.toLowerCase().trim() === 'bỏ qua') return b;
+                        var t = b.innerText ? b.innerText.toLowerCase().trim() : "";
+                        var a = b.getAttribute('aria-label') ? b.getAttribute('aria-label').toLowerCase().trim() : "";
+                        if (t === 'dismiss' || t === 'bỏ qua' || a === 'dismiss' || a === 'bỏ qua') return b;
                     }
                     return null;
                  """),
+                 ("css", "div[role='button'][aria-label='Dismiss']"),
+                 ("xpath", "//div[@role='button' and @aria-label='Dismiss']"),
                  ("xpath", "//button[text()='Dismiss']"),
                  ("xpath", "//div[@role='button' and text()='Dismiss']"),
                  # Then contains

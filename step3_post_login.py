@@ -160,39 +160,43 @@ class InstagramPostLoginStep:
                     // --- ƯU TIÊN: POPUP "ACCOUNTS CENTER" ---
                     if (keywords.account_center_check.some(k => bodyText.includes(k))) {
                         if (bodyText.includes('keep using your info across these accounts?')) {
-                             // [UPDATED] Tìm element chứa text "Use info across accounts"
+                             var found = false;
+                             
+                             // 1. Try to find the specific text element (Exact match first)
                              var candidates = document.querySelectorAll("span, div, label");
-                             var target = null;
                              for (var el of candidates) {
-                                 // Check exact match or close to it to avoid general text blocks
-                                 if (el.innerText && el.innerText.trim().toLowerCase() === "use info across accounts") {
-                                     target = el;
-                                     break;
+                                 if (el.offsetParent === null) continue;
+                                 var txt = el.innerText ? el.innerText.toLowerCase().trim() : "";
+                                 if (txt === "use info across accounts" || txt === "sử dụng thông tin trên các tài khoản") {
+                                     el.click();
+                                     if (el.closest("div[role='button']")) el.closest("div[role='button']").click();
+                                     found = true; 
+                                     break; 
                                  }
                              }
                              
-                             if (target) {
-                                 target.click();
-                                 // Click parent container just in case
-                                 var parentBtn = target.closest("div[role='button']") || target.closest("label");
-                                 if (parentBtn) parentBtn.click();
-
-                                 // Click associated radio if exists nearby
-                                 var radio = target.parentElement ? target.parentElement.querySelector("input[type='radio']") : null;
-                                 if (radio) radio.click();
-                                 
-                                 // Click Next
-                                 setTimeout(() => {
-                                    var buttons = document.querySelectorAll('button, div[role="button"]');
-                                    for (var btn of buttons) {
-                                        var t = btn.innerText.toLowerCase().trim();
-                                        if (btn.offsetParent !== null && !btn.disabled && (t === 'next' || t === 'tiếp' || t === 'continue')) {
-                                            btn.click();
-                                        }
-                                    }
-                                 }, 500); 
-                                 return 'KEEP_INFO_USE_SELECTED';
+                             // 2. Fallback: Click the first radio button (usually "Use info across accounts")
+                             if (!found) {
+                                 var radios = document.querySelectorAll("input[type='radio']");
+                                 if (radios.length > 0) {
+                                     radios[0].click();
+                                     found = true;
+                                 }
                              }
+
+                             // 3. Click Next if we selected something or just try to click Next anyway
+                             setTimeout(() => {
+                                var buttons = document.querySelectorAll('button, div[role="button"]');
+                                for (var btn of buttons) {
+                                    var t = btn.innerText.toLowerCase().trim();
+                                    if (btn.offsetParent !== null && !btn.disabled && (t === 'next' || t === 'tiếp' || t === 'continue')) {
+                                        btn.click();
+                                    }
+                                }
+                             }, 1000); 
+                             
+                             return 'KEEP_INFO_USE_SELECTED';
+
                         } else {
                             let buttons = document.querySelectorAll('button, div[role="button"], span');
                             for (let btn of buttons) {
