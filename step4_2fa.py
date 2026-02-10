@@ -702,6 +702,35 @@ class Instagram2FAStep:
         for attempt in range(max_retries):
             print(f"   [Step 4] Selection Attempt {attempt+1}/{max_retries}...")
             
+            # [FIX] Check immediately if we are ALREADY on the success screen
+            # This prevents loop from trying to click buttons that don't exist and timing out
+            is_key_screen_check = self.driver.execute_script("""
+                var body = document.body.innerText.toLowerCase();
+                // Check if we see the Secret Key directly (Regex for XXXX XXXX ...)
+                var mainText = document.body.innerText;
+                var keyPattern = /([A-Z2-7]{4}\\s?){4,}/; 
+                if (keyPattern.test(mainText) && (body.includes("app") || body.includes("google") || body.includes("duo") || body.includes("otp"))) return true;
+                
+                // Check strictly for Key Screen signs (Copy Button)
+                var keyBtns = document.querySelectorAll("div[role='button'], span[role='button'], button");
+                for (var b of keyBtns) {
+                        var t = b.innerText.toLowerCase();
+                        if (t === 'copy key' || t === 'sao chép khóa' || t === 'copy' || t === 'sao chép') return true;
+                }
+                return false;
+            """)
+            
+            if is_key_screen_check:
+                print("   [Step 4] Already on Secret Key screen (Detected at start of attempt).")
+                return
+
+            # Also check if we overshot to OTP Input (Also means we passed this step)
+            # The next step (_extract_secret_key) will handle going back if needed.
+            state = self._get_page_state()
+            if state == 'OTP_INPUT_SCREEN':
+                print("   [Step 4] Detected OTP Input Screen. Selection assumed complete (Step 4 will handle key retrieval if missing).")
+                return
+
             # 1. Select Radio/Button - Enhanced Selector
             result = self.driver.execute_script("""
                 function clickAuthOption() {
