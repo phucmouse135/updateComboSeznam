@@ -127,6 +127,7 @@ class Instagram2FAStep:
             # -------------------------------------------------
             print(f"   [{target_username}] [Step 4] Scanning UI State...")
             state = "UNKNOWN"
+            broken_retries = 0  # Biến đếm số lần cứu hộ
             
             # Quét 15 lần (Logic gốc)
             for _ in range(15):
@@ -153,8 +154,18 @@ class Instagram2FAStep:
                     raise Exception("STOP_FLOW_2FA: WhatsApp Verification Required")
                 if state == 'SMS_REQUIRED': 
                     raise Exception("STOP_FLOW_2FA: SMS Verification Required")
+
+                # [MODIFIED] Xử lý BROKEN: Thử Refresh thay vì chết ngay
                 if state == 'BROKEN': 
-                    raise Exception("STOP_FLOW_2FA: Page Broken/Content Unavailable")
+                    broken_retries += 1
+                    if broken_retries <= 2:
+                        print(f"   [{target_username}] [Step 4] ⚠️ State detected: BROKEN/UNAVAILABLE. Attempting Refresh Recovery ({broken_retries}/2)...")
+                        self.driver.refresh()
+                        wait_dom_ready(self.driver, timeout=10)
+                        time.sleep(3)
+                        continue # Quay lại đầu vòng lặp để check lại state
+                    else:
+                        raise Exception("STOP_FLOW_2FA: Page Broken/Content Unavailable (After Refreshes)")
                 
                 # Thoát vòng lặp nếu trạng thái đã rõ ràng
                 if state in ['SELECT_APP', 'CHECKPOINT', 'ALREADY_ON', 'RESTRICTED', 'OTP_INPUT_SCREEN']: 
@@ -343,22 +354,41 @@ class Instagram2FAStep:
             wrong_otp_count = 0
             max_wrong_retries = 3
             
+            # [ADDED] Pre-check: If URL redirected to settings home, it's a success
+            if "two_factor" not in self.driver.current_url and "challenge" not in self.driver.current_url:
+                 print(f"   [{target_username}] [Step 4] URL redirected away from 2FA flow. Assessing success...")
+                 # Verify 2FA status via page state might be hard here without navigation, 
+                 # but assume success if no error and URL changed significantly (e.g. to accounts center home)
+            
             while time.time() < end_confirm:
                 res = self.driver.execute_script("""
                     var body = document.body.innerText.toLowerCase();
                     if (body.includes("code isn't right") || body.includes("mã không đúng")) return 'WRONG_OTP';
+                    
+                    // Success Signals
+                    if (body.includes("authentication is on") || body.includes("đang bật")) return 'SUCCESS';
                     if (body.includes("this content is no longer available") || body.includes("không khả dụng")) return 'SUCCESS';
                     
-                    var doneBtns = document.querySelectorAll("span, div[role='button']");
+                    // Button Click Attempt
+                    var doneBtns = document.querySelectorAll("span, div[role='button'], button");
                     for(var b of doneBtns) {
-                        if((b.innerText === 'Done' || b.innerText === 'Xong') && b.offsetParent !== null) {
-                            b.click(); return 'SUCCESS';
+                        var txt = b.innerText.trim().toLowerCase();
+                        if((txt === 'done' || txt === 'xong') && b.offsetParent !== null) {
+                            try { b.click(); } catch(e){} 
+                            return 'SUCCESS';
                         }
                     }
-                    if (body.includes("authentication is on")) return 'SUCCESS';
+                    
                     return 'WAIT';
                 """)
                 
+                # [ADDED] Check URL change as implicit success signal
+                current_url = self.driver.current_url
+                if "password_and_security" in current_url and "two_factor" not in current_url:
+                     # Returned to P&S menu usually means done
+                     print(f"   [{target_username}] [Step 4] Implicit Success: Returned to Password & Security menu.")
+                     success = True; break
+
                 if res == 'WRONG_OTP': 
                     wrong_otp_count += 1
                     if wrong_otp_count < max_wrong_retries:
@@ -517,6 +547,14 @@ class Instagram2FAStep:
 
             if (body.includes("authentication is on") || body.includes("xác thực 2 yếu tố đang bật")) return 'ALREADY_ON';
             
+            // Move OTP_INPUT_SCREEN check UP to prevent false positive SELECT_APP
+            var hasInput = document.querySelector("input[name='code']") || document.querySelector("input[placeholder*='Code']");
+            var hasNext = false;
+            var btns = document.querySelectorAll("button, div[role='button']");
+            for (var b of btns) { if (b.innerText.toLowerCase().includes("next") || b.innerText.toLowerCase().includes("tiếp") || b.innerText.toLowerCase().includes("confirm") || b.innerText.toLowerCase().includes("xác nhận")) hasNext = true; }
+
+            if (hasInput && (body.includes("authentication app") || body.includes("ứng dụng xác thực")) && hasNext) return 'OTP_INPUT_SCREEN';
+
             if (body.includes("help protect your account") || body.includes("authentication app")) return 'SELECT_APP';
 
             if (body.includes("check your whatsapp")) return 'WHATSAPP_REQUIRED';
@@ -667,42 +705,52 @@ class Instagram2FAStep:
             # 1. Select Radio/Button - Enhanced Selector
             result = self.driver.execute_script("""
                 function clickAuthOption() {
-                    var keywords = ["authentication app", "authenticator", "xác thực", "two-factor", "ứng dụng xác thực"];
+                    var keywords = ["authentication app", "authenticator", "xác thực", "two-factor", "ứng dụng xác thực", "duo mobile", "google authenticator"];
                     
+                    // Prioritize Radio Inputs first
+                    var radios = document.querySelectorAll("input[type='radio']");
+                    for (var r of radios) {
+                        var label = (r.getAttribute('aria-label') || r.value || '').toLowerCase();
+                        if (keywords.some(k => label.includes(k))) {
+                            r.click(); return "CLICKED_RADIO_MATCH";
+                        }
+                    }
+
                     // Strategy A: Find by text in clickable elements
                     var els = document.querySelectorAll("div[role='button'], label, span, div");
                     for (var i=0; i<els.length; i++) {
-                        // Skip weak containers if we have better specific ones, but checking all is safer
                         if (els[i].offsetParent === null) continue; // Check visibility
                         
                         var txt = els[i].innerText.toLowerCase();
+                        // Tránh click nhầm vào Header/Footer
+                        if (txt.length > 100) continue; 
+
                         var isMatch = keywords.some(k => txt.includes(k));
                         
                         if (isMatch) {
-                            // Found text, try to find the click target
+                            // Found text, try to find the best click target
+                            var target = els[i];
                             
-                            // 1. If it's a label or button, click it
-                            if (els[i].tagName === 'LABEL' || els[i].getAttribute('role') === 'button') {
-                                els[i].click(); return true; 
-                            }
+                            // Try to click radio nearby
+                            var radio = target.querySelector("input[type='radio']") || 
+                                        (target.parentElement ? target.parentElement.querySelector("input[type='radio']") : null);
+                            if (radio) { radio.click(); return "CLICKED_RADIO_NEARBY"; }
                             
-                            // 2. Look up for a role='button' container
-                            var container = els[i].closest("div[role='button']");
-                            if (container) { container.click(); return true; }
+                            // Click element itself
+                            target.click();
                             
-                            // 3. Look for a radio input nearby
-                            var radio = els[i].querySelector("input[type='radio']") || 
-                                        (els[i].parentElement ? els[i].parentElement.querySelector("input[type='radio']") : null);
-                            if (radio) { radio.click(); return true; }
+                            // Click parent if it's a button
+                            var container = target.closest("div[role='button']");
+                            if (container && container !== target) { container.click(); }
+                            
+                            return "CLICKED_TEXT_ELEMENT";
                         }
                     }
                     
-                    // Strategy B: Find radio button with value if text fails
-                    var radios = document.querySelectorAll("input[type='radio']");
-                    for (var r of radios) {
-                         if (r.value === 'authenticator' || r.value === 'app') {
-                             r.click(); return true;
-                         }
+                    // Strategy C: Fallback - Click the FIRST radio button available (Usually Auth App is top)
+                    if (radios.length > 0) {
+                        radios[0].click();
+                        return "CLICKED_FIRST_RADIO_FALLBACK";
                     }
                     
                     return false;
@@ -711,18 +759,19 @@ class Instagram2FAStep:
             """)
             
             if result:
-                print("   [Step 4] Clicked on authentication app option.")
+                print(f"   [Step 4] Clicked auth option: {result}")
             else:
-                print("   [Step 4] Authentication app option not found (May be pre-selected or diff UI).")
+                print("   [Step 4] Authentication app option not found via selectors.")
             
-            time.sleep(1)
+            time.sleep(1.5) # Wait for UI update (Next button enable)
 
             # 2. Click Continue
-            self._click_continue_robust()
+            if not self._click_continue_robust():
+                 print("   [Step 4] Button 'Next' not found or not clickable yet.")
             
             # 3. Wait for transition
             wait_start = time.time()
-            wait_timeout = 20 # Wait up to 20s for transition
+            wait_timeout = 25 # Increased timeout
             
             while time.time() - wait_start < wait_timeout:
                 state = self._get_page_state()
@@ -855,9 +904,49 @@ class Instagram2FAStep:
                         continue
 
                     if current_state == 'OTP_INPUT_SCREEN' and not secret_key:
-                        print("   [Step 4] Warning: Skiped to OTP screen! Clicking Back...")
-                        self.driver.execute_script("var b = document.querySelector('div[role=\"button\"] svg'); if(b) b.closest('div[role=\"button\"]').click();")
-                        time.sleep(1); continue
+                        print("   [Step 4] Warning: Detected OTP Input Screen without Key! Initiating Back Navigation...")
+                        
+                        # 1. Try clicking strict "Back" button (aria-label)
+                        back_clicked = self.driver.execute_script("""
+                            var btns = document.querySelectorAll('div[role="button"], button');
+                            for (var b of btns) {
+                                var label = (b.getAttribute('aria-label') || '').toLowerCase();
+                                if (label === 'back' || label === 'quay lại' || label === 'go back') {
+                                    b.click(); return true;
+                                }
+                            }
+                            return false;
+                        """)
+                        
+                        # 2. If strict back failed, try finding header back button (top-left SVG)
+                        if not back_clicked:
+                             print("   [Step 4] Back button (aria-label) not found. Trying heuristic (Header SVG)...")
+                             back_clicked = self.driver.execute_script("""
+                                var svgs = document.querySelectorAll('svg');
+                                for (var svg of svgs) {
+                                    // Check if svg is inside a button-like wrapper
+                                    var btn = svg.closest("div[role='button'], button");
+                                    if (btn) {
+                                        // Heuristic: Back button is usually on the left (x < 100) and top (y < 200)
+                                        var rect = btn.getBoundingClientRect();
+                                        if (rect.x < 100 and rect.y < 200 && rect.width > 0 && rect.height > 0) {
+                                            btn.click(); return true;
+                                        }
+                                    }
+                                }
+                                return false;
+                             """)
+
+                        # 3. Last resort: Browser Back (Use with caution in SPA, but better than sticking)
+                        if not back_clicked:
+                             print("   [Step 4] all Back buttons failed. Attempting window.history.back()...")
+                             self.driver.execute_script("window.history.back();")
+                        
+                        time.sleep(3) 
+                        # Removed refresh here to avoid resetting the wizard to step 1
+                        wait_dom_ready(self.driver)
+                        time.sleep(2)
+                        continue
 
                     # Fallback: regex trên body text (nếu cần)
                     if not secret_key:
