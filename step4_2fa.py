@@ -625,7 +625,8 @@ class Instagram2FAStep:
                         print("   [Step 4] No new code after polling. Will retry in next attempt.")
                     continue
             else: time.sleep(1)
-        
+            
+        time.sleep(1) # Giảm xuống 1s
         if checkpoint_passed:
             return True
         else:
