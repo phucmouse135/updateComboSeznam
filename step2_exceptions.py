@@ -871,11 +871,6 @@ class InstagramExceptionStep:
                 new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
                 
-        
-        # if status == "RETRY_UNUSUAL_LOGIN":
-        #     print("   [Step 2] Detected 'Sorry, there was a problem. Please try again.' Retrying Unusual Login...")
-        #     return self.handle_status("CONTINUE_UNUSUAL_LOGIN", ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
-        
         # CHECKPOINT_PHONE
         if status == "CHECKPOINT_PHONE":
             print("   [Step 2] Handling Checkpoint Phone...")
@@ -2208,7 +2203,7 @@ class InstagramExceptionStep:
                 # use another profile va log into instagram => dang nhap lai voi data moi 
                 if 'log into instagram' in body_text or 'use another profile' in body_text or "create new account" in body_text :
                     if "continue" in body_text or "tiếp tục" in body_text:
-                        return "RETRY_UNUSUAL_LOGIN"
+                        return "RETRY_LOGIN"
                     return "FAIL_LOGIN_REDIRECTED_TO_PROFILE_SELECTION"  
                 
                 if 'save your login info' in body_text or 'we can save your login info' in body_text or 'lưu thông tin đăng nhập' in body_text:
