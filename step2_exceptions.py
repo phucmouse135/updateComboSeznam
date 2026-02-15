@@ -36,11 +36,11 @@ class InstagramExceptionStep:
         """Default callback for password changes - does nothing."""
         print(f"   [Step 2] Password changed for {username}: {new_password[:3]}***")
 
-    def _safe_execute_script(self, script, default=None, retries=2):
+    def _safe_execute_script(self, script, *args, default=None, retries=2):
         """Execute JS script with retry on timeout errors."""
         for attempt in range(retries + 1):
             try:
-                return self.driver.execute_script(script)
+                return self.driver.execute_script(script, *args)
             except Exception as e:
                 error_str = str(e).lower()
                 if "timeout" in error_str or "renderer" in error_str or "receiving message" in error_str:
@@ -91,10 +91,11 @@ class InstagramExceptionStep:
                             EC.element_to_be_clickable((By.CSS_SELECTOR, sel))
                         )
                     elif selector_type == "js":
-                        # For JS selector, assume it's a script that returns the element
-                        element = self._safe_execute_script(sel)
-                        if element:
-                            self._safe_execute_script("arguments[0].click();", None, element)
+                        # For JS selector, execute the script, which may return the element or perform the action
+                        result = self._safe_execute_script(sel)
+                        if result:
+                            if hasattr(result, 'click'):  # If it's a WebElement
+                                self._safe_execute_script("arguments[0].click();", result)
                             print(f"   [Step 2] Clicked button via JS selector on attempt {attempt+1}")
                             return True
                     else:
@@ -110,7 +111,7 @@ class InstagramExceptionStep:
                             print(f"   [Step 2] Selenium click failed, trying JS: {click_e}")
                             # Fallback to JS click
                             try:
-                                self._safe_execute_script("arguments[0].click();", None, element)
+                                self._safe_execute_script("arguments[0].scrollIntoView({block: 'center'}); arguments[0].click();", element)
                                 print(f"   [Step 2] Clicked button via JS fallback on attempt {attempt+1}")
                                 return True
                             except Exception as js_e:
@@ -661,7 +662,22 @@ class InstagramExceptionStep:
             wait_dom_ready(self.driver, timeout=10)
             time.sleep(2)
             # DIEN LAI PASSWORD
-            password_input = wait_element(self.driver, By.NAME, "password", timeout=10)
+            password_input = None
+            try:
+                pass_selectors = [
+                    (By.NAME, "pass"),
+                    (By.NAME, "password"),
+                    (By.CSS_SELECTOR, "input[type='password']"),
+                    (By.XPATH, "//input[@type='password']")
+                ]
+                for by, sel in pass_selectors:
+                    password_input = wait_element(self.driver, by, sel, timeout=5)
+                    if password_input:
+                        print(f"   [Step 2] Found password input with selector: {sel}")
+                        break
+            except Exception as e:
+                print(f"   [Step 2] Error searching for password input: {e}")
+
             if password_input:
                 password_input.clear()
                 password_input.send_keys(ig_password)
@@ -739,10 +755,11 @@ class InstagramExceptionStep:
             print(f"   [{ig_username}] [Step 2] Handling Retry Login...")
             # click continue button
             self._robust_click_button([
+                ("css", "button[type='submit']"),
+                ("xpath", "//div[@role='button' or contains(@class, 'x1ja2u2z')][.//text()[contains(., 'Continue')]]"),
                 ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục') or contains(text(), 'Next') or contains(text(), 'Continue as') or contains(text(), 'Proceed')]"),
                 ("xpath", "//div[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
                 ("xpath", "//span[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
-                ("css", "button[type='submit']"),
                 ("js", """
                     var elements = document.querySelectorAll('button, div[role="button"], span, div');
                     for (var i = 0; i < elements.length; i++) {
@@ -771,13 +788,33 @@ class InstagramExceptionStep:
             WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
             time.sleep(2)
             # Nhap lai password
-            password_input = wait_element(self.driver, By.NAME, "password", timeout=10)
+            password_input = None
+            try:
+                pass_selectors = [
+                    (By.NAME, "pass"),
+                    (By.NAME, "password"),
+                    (By.CSS_SELECTOR, "input[type='password']"),
+                    (By.XPATH, "//input[@type='password']")
+                ]
+                for by, sel in pass_selectors:
+                    password_input = wait_element(self.driver, by, sel, timeout=5)
+                    if password_input:
+                        print(f"   [Step 2] Found password input with selector: {sel}")
+                        break
+            except Exception as e:
+                print(f"   [Step 2] Error searching for password input: {e}")
+            
             if password_input:
-                password_input.clear()
-                password_input.send_keys(ig_password)
-                time.sleep(1)
-                password_input.send_keys(Keys.ENTER)
-                WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+                try:
+                    password_input.click()
+                    time.sleep(0.5)
+                    password_input.clear()
+                    password_input.send_keys(ig_password)
+                    time.sleep(1)
+                    password_input.send_keys(Keys.ENTER)
+                    WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+                except Exception as e:
+                    print(f"   [Step 2] Error entering password: {e}")
             else:
                 print(f"   [{ig_username}] [Step 2] Could not find password input to retry login.")
                 
@@ -940,6 +977,41 @@ class InstagramExceptionStep:
                 new_status = self._check_status_change_with_timeout(status, 15)
             return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
             
+        # SELECT_EMAIL_TO_SEND_CODE
+        if status == "SELECT_EMAIL_TO_SEND_CODE":
+            print(f"   [{ig_username}] [Step 2] Handling Select Email To Send Code...")
+            # Click first radio button (default selection often works, but explicit click is safer)
+            self._robust_click_button([
+                ("css", "input[type='radio']"),
+                ("xpath", "//input[@type='radio']"),
+                ("xpath", "(//input[@type='radio'])[1]")
+            ])
+            time.sleep(1)
+            
+            # Click Continue
+            self._robust_click_button([
+                ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục') or contains(text(), 'Next') or contains(text(), 'Proceed')]"),
+                ("css", "button[type='submit']"),
+                ("js", """
+                    var buttons = document.querySelectorAll('button');
+                    for (var i = 0; i < buttons.length; i++) {
+                        var text = buttons[i].textContent.trim().toLowerCase();
+                        if (text.includes('continue') || text.includes('tiếp tục') || text.includes('next')) {
+                            return buttons[i];
+                        }
+                    }
+                    return null;
+                """)
+            ])
+            
+            WebDriverWait(self.driver, 10).until(lambda d: self._safe_execute_script("return document.readyState") == "complete")
+            time.sleep(2)
+            
+            new_status = self._check_verification_result()
+            if new_status == status:
+                new_status = self._check_status_change_with_timeout(status, 15)
+            return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+            
         # RETRY_UNSUAL_LOGIN
         if status == "RETRY_UNUSUAL_LOGIN":
             # call step 1 to login again with new data 
@@ -963,7 +1035,22 @@ class InstagramExceptionStep:
             time.sleep(2)
             
             # Nhap password lai
-            password_input = wait_element(self.driver, By.NAME, "password", timeout=20)
+            password_input = None
+            try:
+                pass_selectors = [
+                    (By.NAME, "pass"),
+                    (By.NAME, "password"),
+                    (By.CSS_SELECTOR, "input[type='password']"),
+                    (By.XPATH, "//input[@type='password']")
+                ]
+                for by, sel in pass_selectors:
+                    password_input = wait_element(self.driver, by, sel, timeout=5)
+                    if password_input:
+                        print(f"   [Step 2] Found password input with selector: {sel}")
+                        break
+            except Exception as e:
+                print(f"   [Step 2] Error searching for password input: {e}")
+
             if password_input: 
                 password_input.clear()
                 password_input.send_keys(ig_password)
@@ -2134,7 +2221,11 @@ class InstagramExceptionStep:
                 if "this was me" in body_text or "let us know if it was you" in body_text:
                     return "CONFIRM_TRUSTED_DEVICE"
                 
-                if "check your text messages" in body_text or "kiểm tra tin nhắn văn bản của bạn" in body_text:
+                # Which email should we send the code to?
+                if "which email should we send the code to" in body_text:
+                    return "SELECT_EMAIL_TO_SEND_CODE"
+
+                # check your text messages
                     return "2FA_TEXT_MESSAGE"
                 
                 # Help us confirm it's you
