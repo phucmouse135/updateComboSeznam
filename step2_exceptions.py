@@ -740,13 +740,29 @@ class InstagramExceptionStep:
             # click continue button
             self._robust_click_button([
                 ("xpath", "//button[contains(text(), 'Continue') or contains(text(), 'Tiếp tục') or contains(text(), 'Next') or contains(text(), 'Continue as') or contains(text(), 'Proceed')]"),
+                ("xpath", "//div[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
+                ("xpath", "//span[contains(text(), 'Continue') or contains(text(), 'Tiếp tục')]"),
                 ("css", "button[type='submit']"),
                 ("js", """
-                    var buttons = document.querySelectorAll('button');
-                    for (var i = 0; i < buttons.length; i++) {
-                        var text = buttons[i].textContent.trim().toLowerCase();
-                        if (text.includes('continue') || text.includes('tiếp tục') || text.includes('next') || text.includes('proceed')) {
-                            return buttons[i];
+                    var elements = document.querySelectorAll('button, div[role="button"], span, div');
+                    for (var i = 0; i < elements.length; i++) {
+                        var el = elements[i];
+                        if (el.textContent && (el.textContent.trim().toLowerCase() === 'continue' || el.textContent.trim().toLowerCase() === 'tiếp tục')) {
+                            // Prefer button or div[role=button] if multiple match, or just click the first one that looks like a leaf node or specific container
+                             if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') {
+                                return el;
+                            }
+                            // If it's a span/div with exact text match, return it
+                            if (el.childElementCount === 0 || el.innerText.trim() === 'Continue') {
+                                return el;
+                            }
+                        }
+                    }
+                    // Fallback broad search
+                    var allDivs = document.querySelectorAll('div');
+                    for (var i = 0; i < allDivs.length; i++) {
+                        if (allDivs[i].innerText === 'Continue' || allDivs[i].innerText === 'Tiếp tục') {
+                            return allDivs[i];
                         }
                     }
                     return null;
@@ -1288,7 +1304,7 @@ class InstagramExceptionStep:
                 new_status = self._check_verification_result()
                 if new_status == status:
                     new_status = self._check_status_change_with_timeout(status, 15)
-                return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, ig_password, depth + 1)
+                return self.handle_status(new_status, ig_username, gmx_user, gmx_pass, linked_mail, new_pass, depth + 1)
             else:
                 raise Exception("STOP_FLOW_CHANGE_PASSWORD: No password provided")
             
