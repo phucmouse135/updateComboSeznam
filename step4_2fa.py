@@ -365,19 +365,19 @@ class Instagram2FAStep:
                     var body = document.body.innerText.toLowerCase();
                     if (body.includes("code isn't right") || body.includes("mã không đúng")) return 'WRONG_OTP';
                     
-                    // Success Signals
-                    if (body.includes("authentication is on") || body.includes("đang bật")) return 'SUCCESS';
-                    if (body.includes("this content is no longer available") || body.includes("không khả dụng")) return 'SUCCESS';
-                    
-                    // Button Click Attempt
+                    // Button Click Attempt (PRIORITY: Click Done before checking success text)
                     var doneBtns = document.querySelectorAll("span, div[role='button'], button");
                     for(var b of doneBtns) {
                         var txt = b.innerText.trim().toLowerCase();
                         if((txt === 'done' || txt === 'xong') && b.offsetParent !== null) {
                             try { b.click(); } catch(e){} 
-                            return 'SUCCESS';
+                            return 'CLICKED_DONE';
                         }
                     }
+
+                    // Success Signals (Only if Done button is NOT found)
+                    if (body.includes("authentication is on") || body.includes("đang bật")) return 'SUCCESS';
+                    if (body.includes("this content is no longer available") || body.includes("không khả dụng")) return 'SUCCESS';
                     
                     return 'WAIT';
                 """)
@@ -423,9 +423,9 @@ class Instagram2FAStep:
                             raise Exception("STOP_FLOW_2FA: OTP_INPUT_FAIL")
                     else:
                         raise Exception("STOP_FLOW_2FA: OTP_REJECTED")
-                if res == 'SUCCESS' or self._get_page_state() == 'ALREADY_ON': 
+                if res == 'SUCCESS' or res == 'CLICKED_DONE' or self._get_page_state() == 'ALREADY_ON': 
                     success = True
-                    print(f"   [{target_username}] [Step 4] => SUCCESS: 2FA Enabled.")
+                    print(f"   [{target_username}] [Step 4] => SUCCESS: {'(Clicked Done) ' if res == 'CLICKED_DONE' else ''}2FA Enabled.")
                     break
                 time.sleep(1)
 
@@ -795,7 +795,32 @@ class Instagram2FAStep:
             time.sleep(1.5) # Wait for UI update (Next button enable)
 
             # 2. Click Continue
-            if not self._click_continue_robust():
+            # [IMPROVED] Specific check for the Next button on the selection screen
+            clicked_next = self.driver.execute_script("""
+                var keywords = ["Next", "Tiếp", "Continue", "Submit", "Xác nhận"];
+                var btns = document.querySelectorAll("button, div[role='button']");
+                
+                // 1. Prioritize buttons that look like "Next" actions (bottom right usually, or specific classes)
+                for (var b of btns) {
+                     var txt = b.innerText.trim();
+                     if (keywords.includes(txt) && !b.disabled && b.offsetParent !== null) {
+                         // Check if it's the primary action (often blue or distinct)
+                         // This avoids clicking "Cancel" or "Back" if they somehow contain "Next" (unlikely but safe)
+                         b.click(); return true;
+                     }
+                }
+                
+                // 2. Fallback to substring match
+                for (var b of btns) {
+                    var txt = b.innerText.trim();
+                    for(var k of keywords) { 
+                        if(txt.includes(k) && b.offsetParent !== null && !b.disabled && b.offsetHeight > 0) { b.click(); return true; } 
+                    }
+                }
+                return false;
+            """)
+            
+            if not clicked_next:
                  print("   [Step 4] Button 'Next' not found or not clickable yet.")
             
             # 3. Wait for transition
@@ -1036,6 +1061,23 @@ class Instagram2FAStep:
     def _click_continue_robust(self):
         return self.driver.execute_script("""
             var keywords = ["Next", "Tiếp", "Continue", "Submit", "Xác nhận", "Confirm", "Done", "Xong", "This Was Me", "Đây là tôi", "Đúng là tôi"];
+            
+            // PRIORITIZE: Look for exact text matches in spans/divs first (Faster & More Accurate)
+            // This addresses the nested span structure in recent Instagram UI updates
+            var candidates = document.querySelectorAll("span, div");
+            for (var el of candidates) {
+                if (el.childElementCount === 0 && el.innerText) { // Leaf nodes only to avoid huge innerText reflows
+                    var txt = el.innerText.trim();
+                    if (keywords.includes(txt)) {
+                        var clickable = el.closest("div[role='button'], button");
+                        if (clickable && clickable.offsetParent !== null && !clickable.disabled) {
+                            clickable.click(); return true;
+                        }
+                    }
+                }
+            }
+
+            // FALLBACK: Standard button search
             var btns = document.querySelectorAll("button, div[role='button']");
             for (var b of btns) {
                 var txt = b.innerText.trim();
